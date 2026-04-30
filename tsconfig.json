@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@my-platform/types": ["./packages/types/src/index.ts"]
+    }
+  }
+}

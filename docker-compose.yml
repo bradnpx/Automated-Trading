@@ -1,0 +1,10 @@
+services:
+  trading-engine:
+    build: ./apps/engine
+    env_file: .env.production
+    restart: always
+  redis:
+    image: redis:alpine
+  dashboard:
+    build: ./apps/dashboard
+    ports: ["3000:3000"]
