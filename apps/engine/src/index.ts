@@ -23,6 +23,7 @@ const posManager = new PositionManager(alpaca);
 const executor = new Executor(alpaca);
 const strategies = new Map<string, BiotechMomentumStrategy>();
 const broadcaster = new Broadcaster(4000);
+const RISK_PER_TRADE = 0.05; // 5% of total equity per position
 
 const marketStream = alpaca.data_stream_v2;
 // const tradeStream = alpaca.websockets;
@@ -171,8 +172,25 @@ function setupStreamHandlers() {
         }
 
         if (posManager.canOpenPosition(bar.symbol)) {
+          const account = await alpaca.getAccount();
+          const equity = parseFloat(account.equity);
+
+          const targetAllocationUsd = equity * RISK_PER_TRADE;
+
+          const qty = targetAllocationUsd / bar.close;
+
+          if (targetAllocationUsd < 1) {
+            console.warn(`⚠️ Allocation too small for ${bar.symbol}`);
+            return;
+          }
+
           console.log(`🚀 BUY SIGNAL: ${bar.symbol} - ${signal.reason}`);
+          console.log(
+            `⚖️  SIZING: Allocating $${targetAllocationUsd.toFixed(2)} (${qty.toFixed(4)} shares)`,
+          );
+
           broadcaster.broadcastSignal(signal);
+
           await executor.placeBuyOrder(bar.symbol, 1);
           await posManager.syncPositions();
         }
@@ -180,8 +198,11 @@ function setupStreamHandlers() {
 
       // E. TEMPORARY TEST (Keep inside 'try' so 'bar' is defined)
       if (bar.symbol === "MRNA") {
+        const account = await alpaca.getAccount()
+        const qty = (parseFloat(account.equity) * RISK_PER_TRADE) / bar.close;
+
         console.log("🧪 TEST: Forcing a test buy for MRNA...");
-        await executor.placeBuyOrder(bar.symbol, 1);
+        await executor.placeBuyOrder(bar.symbol, parseFloat(qty.toFixed(4)));
         await posManager.syncPositions();
       }
     } catch (err) {

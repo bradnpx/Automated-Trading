@@ -1,5 +1,6 @@
 "use client";
 import { useTradingSocket } from "@/hooks/useTradingSocket";
+import EmergencyButton from "./EmergencyButton";
 
 export default function AccountSummary() {
     const { account } = useTradingSocket();
@@ -14,7 +15,7 @@ export default function AccountSummary() {
     ];
 
     return (
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-5 gap-4 mb-6">
         {metrics.map((m) => (
           <div
             key={m.label}
@@ -43,6 +44,7 @@ export default function AccountSummary() {
             </p>
           </div>
         ))}
+        <EmergencyButton/>
       </div>
     );
 }

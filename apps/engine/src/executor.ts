@@ -20,7 +20,7 @@ export class Executor {
         time_in_force: "day",
       });
       console.log(
-        `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty} | ID: ${order.id}`,
+        `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
       return order;
     } catch (err) {

@@ -38,6 +38,19 @@ export class PositionManager {
   }
 
   /**
+   * Evaluate Stop-loss and Take-profit
+   */
+  checkExitConditions(symbol: string, currentPrice: number) {
+    const pos = this.positions.get(symbol: String, currentPrice: number) {
+        const pos = this.positions.get(symbol);
+        if (!pos) return { shouldExit: false, reason: "" }
+
+        const entryPrice = parseFloat(pos.avg_entry_price)
+        const pnlPct = (currentPrice - entryPrice) / entryPrice;
+    }
+  }
+
+  /**
    * Simple Risk Logic: Check if we should exit based on current price
    */
   shouldEmergencyExit(bar: Bar): { exit: boolean; reason: string } {
