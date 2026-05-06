@@ -35,6 +35,9 @@ const marketStream = alpaca.data_stream_v2;
 // const tradeStream = alpaca.websockets;
 // const tradeStream = alpaca.trade_updates_v2;
 
+// test flags
+let ranTestBuy: boolean = false;
+
 // KILL SWITCH FUNCTIONALITY
 // Safety flag for Kill switch
 let isKilled = false;
@@ -76,6 +79,35 @@ app.post("/panic", async (req, res) => {
   }
 });
 
+app.post("/close", async (req, res) => {
+  const { symbol } = req.body;
+
+  if (!symbol) {
+    return res.status(400).json({ error: "Symbol is required" });
+  }
+
+  try {
+    await executor.closePosition(symbol);
+
+    broadcaster.broadcastSignal({
+      symbol,
+      action: "SELL",
+      confidence: 1,
+      reason: "Manual close from dashboard",
+    });
+
+    console.log(`🔴 Manually closed position: ${symbol}`);
+    if (res.status(200)) {
+      res.status(200).json({ message: `Position closed: ${symbol}` });
+      await posManager.syncPositions();
+    } else {
+      res.status(500).json({ error: `Failed to close position: ${symbol}` });
+    }
+  } catch (err) {console.error(`❌ Failed to close ${symbol}:`, err);
+    res.status(500).json({ error: `Failed to close position: ${symbol}` });
+  }
+});
+
 app.listen(4001, () => console.log("🚨 Kill Switch API live on port 4001"));
 
 // 3. LIFECYCLE METHODS
@@ -100,10 +132,26 @@ async function checkAccountHealth() {
   }
 }
 
+async function sendSellSignal(symbol: string) {
+  console.log(`🚨 EXIT SIGNAL [${symbol}]: User manually closed position`);
+  await executor.closePosition(symbol);
+
+  // Broadcast and Log the exit
+  broadcaster.broadcastSignal({
+    symbol: symbol,
+    action: "SELL",
+    confidence: 1,
+    reason: `Auto-Exit: User manually closed position`,
+  });
+
+  await posManager.syncPositions();
+  return; // Stop processing this bar once we sell
+}
+
 const scanner = new Scanner();
-const WATCHLIST = ["SPX", "BNTX", "VRTX"];
+const WATCHLIST = ["SPY", "PTON", "VRTX"];
 const SCAN_LIST = [
-  "SPX",
+  "SPY",
   "IPHA",
   "PBYI",
   "WKEY",
@@ -245,14 +293,15 @@ function setupStreamHandlers() {
       }
 
       // ⚠️ COMMENT TO FIX STOPLOSS: Do not force buy MRNA here or it will override your Stop Loss!
-      if (bar.symbol === "MRNA") {
-        const account = await alpaca.getAccount();
+      if (bar.symbol === "PTON" && !ranTestBuy) {
+        // const account = await alpaca.getAccount();
         const qty = 1;
         // const qty = (parseFloat(account.equity) * RISK_PER_TRADE) / bar.close;
 
-        console.log("🧪 TEST: Forcing a test buy for MRNA...");
+        console.log(`🧪 TEST: Forcing a test buy for ${bar.symbol}...`);
         await executor.placeBuyOrder(bar.symbol, parseFloat(qty.toFixed(4)));
         await posManager.syncPositions();
+        ranTestBuy = true;
       }
     } catch (err) {
       console.error(

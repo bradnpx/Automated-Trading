@@ -27,8 +27,6 @@ export class Broadcaster {
   }
 
   broadcastPortfolio(positions: any[]) {
-    // console.log('broadcasting positions')
-    // console.log(positions)
     this.io.emit(SOCKET_EVENTS.UPDATE, positions);
   }
 

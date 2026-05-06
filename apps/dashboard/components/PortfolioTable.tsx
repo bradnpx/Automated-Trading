@@ -6,6 +6,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useTradingSocket } from "@/context/SocketContext";
+import ClosePositionButton from "./ClosePositionButton";
 
 const columnHelper = createColumnHelper<any>();
 
@@ -128,6 +129,9 @@ export default function PortfolioTable() {
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}
+              <td>
+                <ClosePositionButton symbol={row.original.symbol} />
+              </td>
             </tr>
           ))}
         </tbody>
