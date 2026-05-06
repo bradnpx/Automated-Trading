@@ -22,7 +22,7 @@ export class PositionManager {
     currentPositions.forEach((pos: any) => {
       this.positions.set(pos.symbol, pos);
     });
-    console.log(`✅ Synced ${this.positions.size} open positions.`);
+    // console.log(`✅ Synced ${this.positions.size} open positions.`);
   }
 
   /**

@@ -331,6 +331,7 @@ async function main() {
   // Portfolio & Account Sync
   setInterval(async () => {
     try {
+      await posManager.syncPositions();
       const account = await alpaca.getAccount();
       const positions = posManager.getPositions(); // Use the getter
 
