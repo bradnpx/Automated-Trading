@@ -9,7 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useTradingSocket } from "@/hooks/useTradingSocket";
+import { useTradingSocket } from "@/context/SocketContext";
 
 export default function EquityChart() {
   const { equityHistory } = useTradingSocket();
@@ -31,7 +31,7 @@ export default function EquityChart() {
   const padding = (maxEquity - minEquity) * 0.01 || 100;
 
   return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-80">
+    <div className="bg-black p-6 rounded-xl border border-slate-200 shadow-sm h-80 mb-4">
       <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">
         Live Equity Curve (USD)
       </h3>

@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { AccountPayload, SOCKET_EVENTS } from "@my-platform/types";
+import { AccountPayload, HealthStatus, SOCKET_EVENTS } from "@my-platform/types";
 
 export class Broadcaster {
   private io: Server;
@@ -27,10 +27,28 @@ export class Broadcaster {
   }
 
   broadcastPortfolio(positions: any[]) {
+    // console.log('broadcasting positions')
+    // console.log(positions)
     this.io.emit(SOCKET_EVENTS.UPDATE, positions);
   }
 
   broadcastAccount(data: AccountPayload) {
     this.io.emit(SOCKET_EVENTS.ACCOUNT, data);
+  }
+
+  broadcastScannerAlert(symbol: string, rvol: number) {
+    this.io.emit("scanner alert", { symbol, rvol, timestamp: new Date() });
+  }
+
+  broadcastHealth(alpacaConnected: boolean) {
+    const memory = process.memoryUsage().heapUsed / 1024 / 1024;
+    const health: HealthStatus = {
+      latency: 0, // Calculated by the client (ping/pong)
+      alpacaStream: alpacaConnected ? "CONNECTED" : "DISCONNECTED",
+      memoryUsage: `${memory.toFixed(2)} MB`,
+      uptime: `${Math.floor(process.uptime())}s`,
+      timestamp: new Date().toISOString(),
+    };
+    this.io.emit(SOCKET_EVENTS.HEALTH, health);
   }
 }

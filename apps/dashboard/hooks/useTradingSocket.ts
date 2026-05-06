@@ -2,20 +2,24 @@ import { useEffect, useState, useMemo } from "react";
 import { io } from "socket.io-client";
 import {
   AccountPayload,
+  HealthStatus,
   SOCKET_EVENTS,
   SocketBarPayload,
   TradeSignal,
 } from "@my-platform/types";
+import { eventNames } from "process";
 
 export type TickerData = SocketBarPayload & {
   direction: "up" | "down" | "flat";
 };
 
 export function useTradingSocket() {
+  const [health, setHealth] = useState<HealthStatus | null>(null);
   const [tickerMap, setTickerMap] = useState<Record<string, TickerData>>({});
   const [signals, setSignals] = useState<TradeSignal[]>([]);
   const [portfolio, setPortfolio] = useState<any[]>([]);
   const [account, setAccount] = useState<AccountPayload | null>(null);
+  const [alerts, setAlerts] = useState<any[]>([]);
   const [equityHistory, setEquityHistory] = useState<
     { time: string; equity: number }[]
   >([]);
@@ -24,7 +28,28 @@ export function useTradingSocket() {
   );
 
   useEffect(() => {
-    const socket = io("http://localhost:4000");
+    const socket = io("http://localhost:4000", {
+      transports: ["websocket"]
+    });
+
+    socket.onAny((eventName, ...args) => {
+      console.log(`📡 Incoming Socket Event: [${eventName}]`, args);
+    })
+
+    socket.on("connect", () => console.log("🟢 Socket Connected to Engine!"));
+    socket.on("connect_error", (err) =>
+      console.error("🔴 Socket Connection Error:", err),
+    );
+
+    socket.on(SOCKET_EVENTS.HEALTH, (data: HealthStatus) => {
+      const arrivalTime = Date.now();
+      const sentTime = new Date(data.timestamp).getTime();
+
+      setHealth({
+        ...data,
+        latency: arrivalTime - sentTime,
+      });
+    });
 
     socket.on(SOCKET_EVENTS.BAR, (data: SocketBarPayload) => {
       setTickerMap((prev) => {
@@ -52,7 +77,13 @@ export function useTradingSocket() {
     });
 
     socket.on(SOCKET_EVENTS.UPDATE, (data: any[]) => {
+      console.log("💼 PORTFOLIO DATA RECEIVED:", data)
       setPortfolio(data);
+    });
+
+    socket.on(SOCKET_EVENTS.SCANNER, (data) => {
+      console.log("💎 SOCKET DATA ARRIVED:", data);
+      setAlerts((prev) => [data, ...prev].slice(0, 5));
     });
 
     socket.on(SOCKET_EVENTS.ACCOUNT, (data: AccountPayload) => {
@@ -72,6 +103,7 @@ export function useTradingSocket() {
     });
 
     return () => {
+      console.log("🔴 Cleaning up socket...");
       socket.disconnect();
     };
   }, []);
@@ -85,5 +117,7 @@ export function useTradingSocket() {
     portfolio,
     account,
     equityHistory,
+    alerts,
+    health,
   };
 }

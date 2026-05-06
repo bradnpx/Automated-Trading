@@ -37,8 +37,8 @@ export default function EmergencyButton() {
 
   return (
     <>
-      <div className="p-6 border-2 border-red-500 rounded-lg bg-red-50">
-        <h2 className="text-red-700 font-bold mb-4">SYSTEM SAFETY</h2>
+      <div className="p-6 border-2 border-red-500 rounded-lg bg-red-900">
+        <h2 className="text-red-500 font-bold mb-4">SYSTEM SAFETY</h2>
 
         {status !== "dead" ? (
           <button

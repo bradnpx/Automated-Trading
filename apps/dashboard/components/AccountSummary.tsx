@@ -1,5 +1,5 @@
 "use client";
-import { useTradingSocket } from "@/hooks/useTradingSocket";
+import { useTradingSocket } from "@/context/SocketContext";
 import EmergencyButton from "./EmergencyButton";
 
 export default function AccountSummary() {
@@ -19,14 +19,14 @@ export default function AccountSummary() {
         {metrics.map((m) => (
           <div
             key={m.label}
-            className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"
+            className="bg-black p-4 rounded-xl border border-slate-200 shadow-sm"
           >
-            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-300 mb-1">
               {m.label}
             </p>
             <p
               className={`text-2xl font-black tabular-nums ${
-                m.highlight ? "text-blue-600" : "text-slate-900"
+                m.highlight ? "text-blue-500" : "text-slate-400"
               } ${
                 m.isTrend && m.value > 0
                   ? "text-green-600"

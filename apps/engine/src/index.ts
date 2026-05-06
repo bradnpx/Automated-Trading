@@ -1,14 +1,17 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import path from "path";
-import { fileURLToPath } from "url";
+import express from "express";
+import cors from "cors";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
 import { BarSchema } from "@my-platform/types";
 import { BiotechMomentumStrategy } from "./strategy.js";
+import { PDLSweepVWAPReclaim } from "./strategies/pdl-vwap.js";
 import { PositionManager } from "./positions.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import express from "express";
-import cors from "cors";
+import { logTrade, getTradeHistory } from "./logger.js";
+import { Scanner } from "./scanner.js";
 
 declare module "express";
 declare module "cors";
@@ -21,9 +24,12 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 const alpaca = new Alpaca();
 const posManager = new PositionManager(alpaca);
 const executor = new Executor(alpaca);
-const strategies = new Map<string, BiotechMomentumStrategy>();
+// const strategies = new Map<string, BiotechMomentumStrategy>();
+const strategies = new Map<string, PDLSweepVWAPReclaim>();
 const broadcaster = new Broadcaster(4000);
 const RISK_PER_TRADE = 0.05; // 5% of total equity per position
+let isMarketConnected = false;
+let isTradeConnected = false;
 
 const marketStream = alpaca.data_stream_v2;
 // const tradeStream = alpaca.websockets;
@@ -35,6 +41,18 @@ let isKilled = false;
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+/**
+ * App Signals
+ */
+app.get("/history", async (req, res) => {
+  try {
+    const history = await getTradeHistory();
+    res.json(history.reverse());
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch history" });
+  }
+});
 
 app.post("/reset", async (req, res) => {
   isKilled = false;
@@ -60,8 +78,6 @@ app.post("/panic", async (req, res) => {
 
 app.listen(4001, () => console.log("🚨 Kill Switch API live on port 4001"));
 
-const WATCHLIST = ["MRNA", "BNTX", "VRTX"];
-
 // 3. LIFECYCLE METHODS
 async function checkAccountHealth() {
   console.log("--- 🚀 Initializing Trading Engine Health Check ---");
@@ -84,6 +100,19 @@ async function checkAccountHealth() {
   }
 }
 
+const scanner = new Scanner();
+const WATCHLIST = ["SPX", "BNTX", "VRTX"];
+const SCAN_LIST = [
+  "SPX",
+  "IPHA",
+  "PBYI",
+  "WKEY",
+  "SERV",
+  "GBTG",
+  "PTON",
+  "NTLA",
+];
+
 async function warmupStrategies() {
   for (const symbol of WATCHLIST) {
     console.log(`🔥 Warming up strategy for ${symbol}...`);
@@ -96,7 +125,8 @@ async function warmupStrategies() {
       feed: "iex", // Explicitly use the free IEX feed
     });
 
-    const strategy = new BiotechMomentumStrategy();
+    // const strategy = new BiotechMomentumStrategy();
+    const strategy = new PDLSweepVWAPReclaim();
     const historicalBars = [];
 
     for await (const b of bars) {
@@ -122,14 +152,16 @@ async function warmupStrategies() {
 function setupStreamHandlers() {
   marketStream.onConnect(() => {
     console.log("📡 Connected to Alpaca Real-Time Stream");
-    marketStream.subscribeForBars(WATCHLIST);
-    // marketStream.subscribeForTradeUpdates();
+    marketStream.subscribeForBars(SCAN_LIST);
   });
 
-  //   TODO: fix Race conditions
+  //   marketStream.onAuthenticated(() => {
+  //     isMarketConnected = true;
+  //     console.log("✅ Market Stream Authenticated");
+  //   });
+
   marketStream.onStockBar(async (barData: any) => {
     try {
-      // 1. UNIVERSAL MAPPING (Handles Stream, REST, and different SDK versions)
       const bar = BarSchema.parse({
         symbol: barData.Symbol ?? barData.symbol,
         timestamp: barData.Timestamp ?? barData.timestamp,
@@ -147,59 +179,76 @@ function setupStreamHandlers() {
         volume: barData.Volume ?? barData.volume ?? barData.v ?? 0,
       });
 
+      // A. CHECK EXITS (This must happen first)
+      if (posManager.hasPosition(bar.symbol)) {
+        const { shouldExit, reason } = posManager.checkExitConditions(
+          bar.symbol,
+          bar.close,
+        );
+
+        if (shouldExit) {
+          console.log(`🚨 EXIT SIGNAL [${bar.symbol}]: ${reason}`);
+          await executor.closePosition(bar.symbol);
+
+          // Broadcast and Log the exit
+          broadcaster.broadcastSignal({
+            symbol: bar.symbol,
+            action: "SELL",
+            confidence: 1,
+            reason: `Auto-Exit: ${reason}`,
+          });
+
+          await posManager.syncPositions();
+          return; // Stop processing this bar once we sell
+        }
+      }
+
+      // B. UPDATE UI & SCANNER
       console.log(`📈 [${bar.symbol}] $${bar.close}`);
       broadcaster.broadcastBar(bar.symbol, bar.close);
 
-      // B. Risk Management (Emergency Exits)
-      const { exit, reason } = posManager.shouldEmergencyExit(bar);
-      if (exit) {
-        console.log(`🚨 EXIT SIGNAL: ${bar.symbol} - ${reason}`);
-        await executor.closePosition(bar.symbol);
-        await posManager.syncPositions();
-        return;
+      const { isHot, rvol } = scanner.processBar(bar.symbol, bar.volume);
+      if (isHot && !strategies.has(bar.symbol)) {
+        console.log(
+          `🔥 SCANNER: ${bar.symbol} is surging! RVOL: ${rvol.toFixed(2)}x`,
+        );
+        broadcaster.broadcastScannerAlert(bar.symbol, rvol);
+
+        // const newStrategy = new BiotechMomentumStrategy();
+        const newStrategy = new PDLSweepVWAPReclaim();
+        newStrategy.hydrate([bar]);
+        strategies.set(bar.symbol, newStrategy);
       }
 
-      // C. Strategy Processing
+      // C. STRATEGY PROCESSING
       const strategy = strategies.get(bar.symbol);
       if (!strategy) return;
+
       const signal = strategy.update(bar);
 
-      // D. Execution Gatekeeping
-      if (signal.action === "BUY") {
-        if (isKilled) {
-          console.warn("🚫 Trade blocked: Engine is in KILL MODE.");
-          return;
-        }
+      // D. EXECUTION GATEKEEPING
+      if (
+        signal.action === "BUY" &&
+        !isKilled &&
+        posManager.canOpenPosition(bar.symbol)
+      ) {
+        const account = await alpaca.getAccount();
+        const equity = parseFloat(account.equity);
+        const qty = (equity * RISK_PER_TRADE) / bar.close;
 
-        if (posManager.canOpenPosition(bar.symbol)) {
-          const account = await alpaca.getAccount();
-          const equity = parseFloat(account.equity);
-
-          const targetAllocationUsd = equity * RISK_PER_TRADE;
-
-          const qty = targetAllocationUsd / bar.close;
-
-          if (targetAllocationUsd < 1) {
-            console.warn(`⚠️ Allocation too small for ${bar.symbol}`);
-            return;
-          }
-
+        if (qty > 0) {
           console.log(`🚀 BUY SIGNAL: ${bar.symbol} - ${signal.reason}`);
-          console.log(
-            `⚖️  SIZING: Allocating $${targetAllocationUsd.toFixed(2)} (${qty.toFixed(4)} shares)`,
-          );
-
           broadcaster.broadcastSignal(signal);
-
-          await executor.placeBuyOrder(bar.symbol, 1);
+          await executor.placeBuyOrder(bar.symbol, qty);
           await posManager.syncPositions();
         }
       }
 
-      // E. TEMPORARY TEST (Keep inside 'try' so 'bar' is defined)
+      // ⚠️ COMMENT TO FIX STOPLOSS: Do not force buy MRNA here or it will override your Stop Loss!
       if (bar.symbol === "MRNA") {
-        const account = await alpaca.getAccount()
-        const qty = (parseFloat(account.equity) * RISK_PER_TRADE) / bar.close;
+        const account = await alpaca.getAccount();
+        const qty = 1;
+        // const qty = (parseFloat(account.equity) * RISK_PER_TRADE) / bar.close;
 
         console.log("🧪 TEST: Forcing a test buy for MRNA...");
         await executor.placeBuyOrder(bar.symbol, parseFloat(qty.toFixed(4)));
@@ -211,27 +260,7 @@ function setupStreamHandlers() {
         err instanceof Error ? err.message : err,
       );
     }
-    // <--- NOTHING SHOULD BE HERE (This is the end of the onStockBar function)
   });
-
-  //   marketStream.onTradeUpdate(async (update: any) => {
-  //     const { event, order, position_qty } = update;
-
-  //     switch (event) {
-  //       case "fill":
-  //         console.log(
-  //           `✅ ORDER FILLED: ${order.symbol} | Qty: ${order.qty} @ $${order.filled_avg_price}`,
-  //         );
-  //         await posManager.syncPositions();
-  //         break;
-  //       case "canceled":
-  //         console.log(`❌ ORDER CANCELED: ${order.symbol}`);
-  //         break;
-  //       case "rejected":
-  //         console.log(`⚠️ ORDER REJECTED: ${order.symbol}`);
-  //         break;
-  //     }
-  //   });
 
   marketStream.onError((err: any) => console.error("Stream Error:", err));
 }
@@ -242,24 +271,21 @@ async function main() {
   await posManager.syncPositions();
   await warmupStrategies();
 
+  // Call the REAL setupStreamHandlers defined above
   setupStreamHandlers();
 
-  setInterval(async () => {
-    await posManager.syncPositions();
-    broadcaster.broadcastPortfolio(Array.from(posManager.getPositions()));
-  }, 500);
+  // System Health Broadcast
+  setInterval(() => {
+    broadcaster.broadcastHealth(isMarketConnected && isTradeConnected);
+  }, 5000);
 
+  // Portfolio & Account Sync
   setInterval(async () => {
     try {
-      const [account, positions] = await Promise.all([
-        alpaca.getAccount(),
-        posManager
-          .syncPositions()
-          .then(() => Array.from(posManager.getPositions())),
-      ]);
+      const account = await alpaca.getAccount();
+      const positions = posManager.getPositions(); // Use the getter
 
       broadcaster.broadcastPortfolio(positions);
-
       broadcaster.broadcastAccount({
         equity: parseFloat(account.equity),
         buying_power: parseFloat(account.buying_power),
@@ -271,7 +297,7 @@ async function main() {
     } catch (err) {
       console.error("Failed to sync account data: ", err);
     }
-  }, 5000);
+  }, 500);
 
   marketStream.connect();
 }

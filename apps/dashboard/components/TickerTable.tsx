@@ -6,7 +6,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { useTradingSocket } from '../hooks/useTradingSocket';
+import { useTradingSocket } from "@/context/SocketContext";
 import { SocketBarPayload } from '@my-platform/types';
 import PriceCell from './PriceCell';
 
@@ -42,9 +42,9 @@ export default function TickerTable() {
   });
 
   return (
-    <div className="rounded-md border border-slate-200 bg-white overflow-hidden">
+    <div className="rounded-md border border-slate-200 overflow-hidden">
       <table className="w-full text-left text-sm">
-        <thead className="bg-slate-50 border-b border-slate-200 uppercase text-xs font-semibold text-slate-600">
+        <thead className="bg-slate-500 border-b border-slate-200 uppercase text-xs font-semibold text-slate-200">
           {table.getHeaderGroups().map(headerGroup => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map(header => (

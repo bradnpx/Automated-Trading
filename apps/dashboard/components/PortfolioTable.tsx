@@ -5,7 +5,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useTradingSocket } from "@/hooks/useTradingSocket";
+import { useTradingSocket } from "@/context/SocketContext";
 
 const columnHelper = createColumnHelper<any>();
 
@@ -52,6 +52,40 @@ const columns = [
       );
     },
   }),
+  columnHelper.display({
+    id: 'exits',
+    header: 'SL / TP Levels',
+    cell: info => {
+        const entry = parseFloat(info.row.original.avg_entry_price);
+        const sl = entry * 0.98;
+        const tp = entry * 1.04;
+        return (
+            <div className="text-[10px] space-y-1">
+                <div className="text-red-500 font-mono">SL: ${sl.toFixed(2)}</div>
+                <div className="text-green-500 font-mono">SL: ${tp.toFixed(2)}</div>
+            </div>
+        )
+    }
+  }),
+  columnHelper.display({
+    id: 'trailing_stop',
+    head: 'Current Floor',
+    cell: info => {
+        const row = info.row.original;
+        const entry = parseFloat(row.avg_entry_price)
+        const current = parseFloat(row.current_price)
+
+        const floor = current * 0.985; //1.5% trail
+
+        return (
+            <div className="flex flex-col">
+                <span className={`text-xs font-mono ${current > entry ? 'text-green-600' : 'text-slate-400'}`}>
+                    Floor: %{floor.toFixed(2)}
+                </span>
+            </div>
+        )
+    }
+  })
 ];
 
 export default function PortfolioTable() {
@@ -64,12 +98,12 @@ export default function PortfolioTable() {
   });
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-        <h3 className="text-sm font-bold text-slate-700">Active Positions</h3>
+    <div className="bg-black rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-slate-100 bg-slate-900">
+        <h3 className="text-md font-bold text-slate-400">Active Positions</h3>
       </div>
       <table className="w-full text-sm">
-        <thead className="text-left bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider">
+        <thead className="text-left bg-slate-500 text-slate-50 uppercase text-[10px] tracking-wider">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
