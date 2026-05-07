@@ -153,6 +153,7 @@ const scanner = new Scanner();
 const WATCHLIST = ["SPY", "PTON", "VRTX"];
 const SCAN_LIST = [
   "SPY",
+  "SPXL",
   "IPHA",
   "PBYI",
   "WKEY",
@@ -218,13 +219,20 @@ async function checkPositionsForExits() {
       if (shouldExit) {
         posManager.markPendingExit(pos.symbol);
         console.log(`🚨 EXIT SIGNAL [${pos.symbol}]: ${reason}`);
-        await executor.closePosition(pos.symbol);
-        broadcaster.broadcastSignal({
-          symbol: pos.symbol,
-          action: "SELL",
-          confidence: 1,
-          reason: `Auto-exit: ${reason}`,
-        });
+
+        try {
+          await executor.closePosition(pos.symbol);
+          broadcaster.broadcastSignal({
+            symbol: pos.symbol,
+            action: "SELL",
+            confidence: 1,
+            reason: `Auto-exit: ${reason}`,
+          });
+        } catch (err) {
+          console.error(
+            `⚠️ Exit attempt failed for ${pos.symbol}, will retry next cycle`,
+          );
+        }
       }
     }
     broadcaster.broadcastPortfolio(posManager.getPositions());
@@ -384,7 +392,7 @@ async function main() {
     } catch (err) {
       console.error("Failed to sync account data: ", err);
     }
-  }, 500);
+  }, 1000);
 
   setInterval(checkPositionsForExits, 2000);
 

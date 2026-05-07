@@ -23,7 +23,7 @@ export class Executor {
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
-      logTrade(order)
+      logTrade(order);
       return order;
     } catch (err) {
       console.error(`❌ [EXEC] Buy Order Failed for ${symbol}:`, err);
@@ -46,15 +46,34 @@ export class Executor {
         symbols: [symbol],
       });
       for (const order of orders) {
-        await this.alpaca.cancelOrder(order.id)
-        logTrade(order);
+        try {
+          await this.alpaca.cancelOrder(order.id);
+          logTrade(order);
+        } catch (err: any) {
+          if (err?.response?.status === 422) {
+            console.log(
+              `⏳ [EXEC] Order ${order.id} already pending cancel, skipping...`,
+            );
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      if (orders.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       const response = await this.alpaca.closePosition(symbol);
       console.log(`📉 [EXEC] POSITION CLOSED: ${symbol}`);
       return response;
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        console.log(`✅ [EXEC] Position ${symbol} already closed.`);
+        return;
+      }
       console.error(`❌ [EXEC] Close Position Failed for ${symbol}:`, err);
+      throw err;
     }
   }
 
