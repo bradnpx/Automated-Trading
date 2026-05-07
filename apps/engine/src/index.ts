@@ -163,37 +163,68 @@ const SCAN_LIST = [
   "NTLA",
 ];
 
+// Converts the async generator returned by getBarsV2 into a plain array
+async function barsToArray(gen: AsyncIterable<any>): Promise<any[]> {
+  const result: any[] = [];
+  for await (const b of gen) {
+    result.push(b);
+  }
+  return result;
+}
+
+// Fetches the previous trading day's low for a given symbol
+async function getPreviousDayLow(symbol: string): Promise<number> {
+  try {
+    const gen = alpaca.getBarsV2(symbol, {
+      start: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+      end: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+      timeframe: alpaca.newTimeframe(1, alpaca.timeframeUnit.DAY),
+      feed: "iex",
+    });
+    const bars = await barsToArray(gen);
+    if (bars.length === 0) return 0;
+    const b = bars[bars.length - 1];
+    return b.LowPrice ?? b.Low ?? b.low ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function warmupStrategies() {
   for (const symbol of WATCHLIST) {
     console.log(`🔥 Warming up strategy for ${symbol}...`);
 
-    // Fetch last 100 minutes of data for indicators
-    const bars = await alpaca.getBarsV2(symbol, {
+    // Fetch last ~3 hours of 1-min bars for indicator warmup
+    const gen = alpaca.getBarsV2(symbol, {
       start: new Date(Date.now() - 1000 * 60 * 200).toISOString(), // ~3 hours ago
       end: new Date(Date.now() - 1000 * 60 * 16).toISOString(), // 16 mins ago (Required for Free Tier)
       timeframe: alpaca.newTimeframe(1, alpaca.timeframeUnit.MIN),
       feed: "iex", // Explicitly use the free IEX feed
     });
 
+    const rawBars = await barsToArray(gen);
+
+    const historicalBars = rawBars.map((b) =>
+      BarSchema.parse({
+        symbol: symbol,
+        timestamp: b.Timestamp ?? b.timestamp,
+        open: b.OpenPrice ?? b.Open ?? b.open,
+        high: b.HighPrice ?? b.High ?? b.high,
+        low: b.LowPrice ?? b.Low ?? b.low,
+        close: b.ClosePrice ?? b.Close ?? b.close,
+        volume: b.Volume ?? b.volume,
+      })
+    );
+
+    // Derive prevLow from the earliest bar in the fetched history
+    // (avoids an extra API call for WATCHLIST symbols)
+    const prevLow = historicalBars.length > 0
+      ? Math.min(...historicalBars.map((b) => b.low))
+      : 0;
+
     // const strategy = new BiotechMomentumStrategy();
     const strategy = new PDLSweepVWAPReclaim();
-    const historicalBars = [];
-
-    for await (const b of bars) {
-      historicalBars.push(
-        BarSchema.parse({
-          symbol: symbol,
-          timestamp: b.Timestamp ?? b.timestamp,
-          open: b.OpenPrice ?? b.Open ?? b.open,
-          high: b.HighPrice ?? b.High ?? b.high,
-          low: b.LowPrice ?? b.Low ?? b.low,
-          close: b.ClosePrice ?? b.Close ?? b.close,
-          volume: b.Volume ?? b.volume,
-        }),
-      );
-    }
-
-    strategy.hydrate(historicalBars);
+    strategy.hydrate(historicalBars, prevLow);
     strategies.set(symbol, strategy);
   }
 }
@@ -308,9 +339,12 @@ function setupStreamHandlers() {
         );
         broadcaster.broadcastScannerAlert(bar.symbol, rvol);
 
+        // Fetch the previous day's low so the PDL strategy can detect sweeps
+        const prevLow = await getPreviousDayLow(bar.symbol);
+
         // const newStrategy = new BiotechMomentumStrategy();
         const newStrategy = new PDLSweepVWAPReclaim();
-        newStrategy.hydrate([bar]);
+        newStrategy.hydrate([bar], prevLow);
         strategies.set(bar.symbol, newStrategy);
       }
 
