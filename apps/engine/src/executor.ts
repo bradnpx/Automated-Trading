@@ -1,4 +1,5 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
+import { logTrade } from "./logger";
 
 export class Executor {
   private alpaca: Alpaca;
@@ -22,6 +23,7 @@ export class Executor {
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
+      logTrade(order)
       return order;
     } catch (err) {
       console.error(`❌ [EXEC] Buy Order Failed for ${symbol}:`, err);
@@ -33,8 +35,21 @@ export class Executor {
    */
   async closePosition(symbol: string) {
     try {
-      // Alpaca has a specific 'closePosition' endpoint which is safer than
-      // calculating quantity manually to sell.
+      //cancel outstanding orders pertaining to the symbol to 'clear out the lane'
+      const orders = await this.alpaca.getOrders({
+        status: "open",
+        until: undefined,
+        after: undefined,
+        limit: undefined,
+        direction: undefined,
+        nested: undefined,
+        symbols: [symbol],
+      });
+      for (const order of orders) {
+        await this.alpaca.cancelOrder(order.id)
+        logTrade(order);
+      }
+
       const response = await this.alpaca.closePosition(symbol);
       console.log(`📉 [EXEC] POSITION CLOSED: ${symbol}`);
       return response;

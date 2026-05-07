@@ -22,6 +22,12 @@ export class PositionManager {
     currentPositions.forEach((pos: any) => {
       this.positions.set(pos.symbol, pos);
     });
+
+    for (const symbol of this.pendingExits) {
+      if (!this.positions.has(symbol)) {
+        this.pendingExits.delete(symbol)
+      }
+    }
     // console.log(`✅ Synced ${this.positions.size} open positions.`);
   }
 
@@ -50,9 +56,31 @@ export class PositionManager {
   }
 
   /**
+   * Checks for pending exits to prevent double-sell orders that fail
+   */
+  private pendingExits: Set<string> = new Set();
+
+  markPendingExit(symbol: string) {
+    this.pendingExits.add(symbol);
+  }
+
+  getPendingExits() {
+    return this.pendingExits;
+  }
+
+  clearPendingExit(symbol: string) {
+    this.pendingExits.delete(symbol);
+  }
+
+  /**
    * Evaluate Stop-loss and Take-profit
    */
   checkExitConditions(symbol: string, currentPrice: number) {
+    if (this.pendingExits.has(symbol)) {
+      console.log(`checkExitConditions: ${symbol} already exists in PendingExits`)
+      return {shouldExit: false, reason: ""}
+    }
+
     const pos = this.positions.get(symbol);
     if (!pos) return { shouldExit: false, reason: "" };
 
@@ -69,13 +97,6 @@ export class PositionManager {
     const dropFromPeak = (peak - currentPrice) / peak;
     const totalPnl = (currentPrice - entryPrice) / entryPrice;
 
-    if (totalPnl <= -this.STOP_LOSS_PCT) {
-      return {
-        shouldExit: true,
-        reason: `HARD_STOP: ${(totalPnl * 100).toFixed(2)}%`,
-      };
-    }
-
     // Stop-loss check
     if (pnlPct <= -this.STOP_LOSS_PCT) {
       return {
@@ -85,7 +106,7 @@ export class PositionManager {
     }
 
     // Take-profit check
-    if (pnlPct >= this.STOP_LOSS_PCT) {
+    if (pnlPct >= this.TAKE_PROFIT_PCT) {
       return {
         shouldExit: true,
         reason: `TAKE_PROFIT: +${(pnlPct * 100).toFixed(2)}%`,

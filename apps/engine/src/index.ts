@@ -103,7 +103,8 @@ app.post("/close", async (req, res) => {
     } else {
       res.status(500).json({ error: `Failed to close position: ${symbol}` });
     }
-  } catch (err) {console.error(`❌ Failed to close ${symbol}:`, err);
+  } catch (err) {
+    console.error(`❌ Failed to close ${symbol}:`, err);
     res.status(500).json({ error: `Failed to close position: ${symbol}` });
   }
 });
@@ -196,6 +197,42 @@ async function warmupStrategies() {
   }
 }
 
+async function checkPositionsForExits() {
+  if (posManager.getPendingExits().size === 0) {
+    return;
+  }
+
+  console.log("Pending Exits: ", posManager.getPendingExits());
+
+  try {
+    await posManager.syncPositions();
+    const positions = posManager.getPositions();
+
+    for (const pos of positions) {
+      const currentPrice = parseFloat(pos.current_price);
+      const { shouldExit, reason } = posManager.checkExitConditions(
+        pos.symbol,
+        currentPrice,
+      );
+
+      if (shouldExit) {
+        posManager.markPendingExit(pos.symbol);
+        console.log(`🚨 EXIT SIGNAL [${pos.symbol}]: ${reason}`);
+        await executor.closePosition(pos.symbol);
+        broadcaster.broadcastSignal({
+          symbol: pos.symbol,
+          action: "SELL",
+          confidence: 1,
+          reason: `Auto-exit: ${reason}`,
+        });
+      }
+    }
+    broadcaster.broadcastPortfolio(posManager.getPositions());
+  } catch (err) {
+    console.error("Failed to sync/check exits: ", err);
+  }
+}
+
 // 4. THE MAIN DATA PIPELINE
 function setupStreamHandlers() {
   marketStream.onConnect(() => {
@@ -235,6 +272,7 @@ function setupStreamHandlers() {
         );
 
         if (shouldExit) {
+          posManager.markPendingExit(bar.symbol);
           console.log(`🚨 EXIT SIGNAL [${bar.symbol}]: ${reason}`);
           await executor.closePosition(bar.symbol);
 
@@ -334,7 +372,6 @@ async function main() {
       await posManager.syncPositions();
       const account = await alpaca.getAccount();
       const positions = posManager.getPositions(); // Use the getter
-
       broadcaster.broadcastPortfolio(positions);
       broadcaster.broadcastAccount({
         equity: parseFloat(account.equity),
@@ -348,6 +385,8 @@ async function main() {
       console.error("Failed to sync account data: ", err);
     }
   }, 500);
+
+  setInterval(checkPositionsForExits, 2000);
 
   marketStream.connect();
 }

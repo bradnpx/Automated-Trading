@@ -9,6 +9,8 @@ export async function logTrade(record: TradeRecord) {
     await fs.mkdir(path.dirname(LOG_PATH), { recursive: true });
 
     const logEntry = JSON.stringify(record) + "\n";
+    console.log("Logging Trade...")
+    console.log(logEntry)
     await fs.appendFile(LOG_PATH, logEntry, "utf8");
   } catch (err) {
     console.error("❌ Failed to log trade:", err);
