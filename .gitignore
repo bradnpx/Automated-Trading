@@ -27,6 +27,8 @@ out/
 build
 dist
 
+# Trade Logs
+apps/engines/logs/
 
 # Debug
 npm-debug.log*
