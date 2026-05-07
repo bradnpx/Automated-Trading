@@ -352,7 +352,7 @@ function setupStreamHandlers() {
       const strategy = strategies.get(bar.symbol);
       if (!strategy) return;
 
-      const signal = strategy.update(bar);
+      const signal = strategy.evaluateStrategy(bar);
 
       // D. EXECUTION GATEKEEPING
       if (

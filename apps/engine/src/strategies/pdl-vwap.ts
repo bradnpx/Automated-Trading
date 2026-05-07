@@ -2,6 +2,13 @@ import { Bar, TradeSignal } from "@my-platform/types";
 
 export class PDLSweepVWAPReclaim {
   private history: Bar[] = [];
+  private criteria = {
+    isInSession: false,
+    isBelowVWAP: false,
+    isFirstTouch: false,
+    isReclaimed: false,
+    isBullish: false,
+  };
   private prevLow: number = 0;
 
   // State tracking
@@ -16,7 +23,7 @@ export class PDLSweepVWAPReclaim {
     this.prevLow = prevLow || 0;
   }
 
-  public update(bar: Bar): TradeSignal {
+  public evaluateStrategy(bar: Bar): TradeSignal {
     const prevBar = this.history[this.history.length - 1];
     this.history.push(bar);
     if (this.history.length > 200) this.history.shift();
@@ -33,11 +40,14 @@ export class PDLSweepVWAPReclaim {
     const nyHour = date.getUTCHours() - 4; // crude NY conversion (adjust DST properly in prod)
     const min = date.getUTCMinutes();
 
-    const inSession =
+    // const inSession =
+    this.criteria.isInSession =
       (nyHour === 9 && min >= 30) || (nyHour === 10 && min <= 30);
+    console.log((this.criteria.isInSession ? "✅" : "❌") + "isInSession");
 
     // ✅ 3. VWAP condition
-    const isBelowVWAP = currentVWAP - bar.close >= this.VWAP_DISTANCE;
+    this.criteria.isBelowVWAP = currentVWAP - bar.close >= this.VWAP_DISTANCE;
+    console.log((this.criteria.isBelowVWAP ? "✅" : "❌") + "isBelowVWAP");
 
     // ✅ 4. Sweep detection
     const sweepOccurred = bar.low < this.prevLow;
@@ -50,21 +60,27 @@ export class PDLSweepVWAPReclaim {
     }
 
     // ✅ 5. First touch logic
-    const isFirstTouch = this.barsSinceSweep > this.LOOKBACK_PERIOD;
+    this.criteria.isFirstTouch = this.barsSinceSweep > this.LOOKBACK_PERIOD;
+    console.log((this.criteria.isFirstTouch ? "✅" : "❌") + "isFirstTouch");
 
     // ✅ 6. Reclaim logic (can happen AFTER sweep)
-    const reclaim = this.pendingSweep && bar.close > this.prevLow;
+    this.criteria.isReclaimed = this.pendingSweep && bar.close > this.prevLow;
+    console.log((this.criteria.isReclaimed ? "✅" : "❌") + "isReclaimed");
 
     // ✅ 7. Bullish confirmation
-    const isBullish = bar.close > bar.open && bar.close > prevBar.close;
+    this.criteria.isBullish = bar.close > bar.open && bar.close > prevBar.close;
+    console.log((this.criteria.isBullish ? "✅" : "❌") + "isBullish");
 
     // ✅ 8. Final setup
-    const isLongSetup =
-      inSession && isBelowVWAP && isFirstTouch && reclaim && isBullish;
+    const meetsAllCriteria = Object.values(this.criteria).every(
+      (item) => item === true,
+    );
+    // const meetsAllCriteria =
+    //   inSession && isBelowVWAP && isFirstTouch && reclaim && isBullish;
 
-    if (isLongSetup) {
+    if (meetsAllCriteria) {
       this.pendingSweep = false; // reset state after trade
-
+      console.log("💲 Strategy is a GO");
       return {
         symbol: bar.symbol,
         action: "BUY",
