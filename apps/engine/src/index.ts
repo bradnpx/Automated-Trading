@@ -150,18 +150,8 @@ async function sendSellSignal(symbol: string) {
 }
 
 const scanner = new Scanner();
-const WATCHLIST = ["SPY", "PTON", "VRTX"];
-const SCAN_LIST = [
-  "SPY",
-  "SPXL",
-  "IPHA",
-  "PBYI",
-  "WKEY",
-  "SERV",
-  "GBTG",
-  "PTON",
-  "NTLA",
-];
+const WATCHLIST = ["SPY", "AAPL", "QQQ", "NVDA"];
+const SCAN_LIST = ["SPY", "AAPL", "QQQ", "NVDA", "MSFT", "META", "IWM"];
 
 // Converts the async generator returned by getBarsV2 into a plain array
 async function barsToArray(gen: AsyncIterable<any>): Promise<any[]> {
@@ -213,14 +203,15 @@ async function warmupStrategies() {
         low: b.LowPrice ?? b.Low ?? b.low,
         close: b.ClosePrice ?? b.Close ?? b.close,
         volume: b.Volume ?? b.volume,
-      })
+      }),
     );
 
     // Derive prevLow from the earliest bar in the fetched history
     // (avoids an extra API call for WATCHLIST symbols)
-    const prevLow = historicalBars.length > 0
-      ? Math.min(...historicalBars.map((b) => b.low))
-      : 0;
+    const prevLow =
+      historicalBars.length > 0
+        ? Math.min(...historicalBars.map((b) => b.low))
+        : 0;
 
     // const strategy = new BiotechMomentumStrategy();
     const strategy = new PDLSweepVWAPReclaim();

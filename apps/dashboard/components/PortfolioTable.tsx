@@ -62,15 +62,15 @@ const columns = [
         const tp = entry * 1.04;
         return (
             <div className="text-[10px] space-y-1">
+                <div className="text-green-500 font-mono">TP: ${tp.toFixed(2)}</div>
                 <div className="text-red-500 font-mono">SL: ${sl.toFixed(2)}</div>
-                <div className="text-green-500 font-mono">SL: ${tp.toFixed(2)}</div>
             </div>
         )
     }
   }),
   columnHelper.display({
     id: 'trailing_stop',
-    head: 'Current Floor',
+    header: 'Current Floor',
     cell: info => {
         const row = info.row.original;
         const entry = parseFloat(row.avg_entry_price)
@@ -81,7 +81,7 @@ const columns = [
         return (
             <div className="flex flex-col">
                 <span className={`text-xs font-mono ${current > entry ? 'text-green-600' : 'text-slate-400'}`}>
-                    Floor: %{floor.toFixed(2)}
+                    Floor: ${floor.toFixed(2)}
                 </span>
             </div>
         )

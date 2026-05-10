@@ -7,11 +7,9 @@ export default function PerformanceStats() {
   const [history, setHistory] = useState<TradeRecord[]>([]);
 
   useEffect(() => {
-    const fetchHistory = () => {
-      fetch("http://localhost:4001/history")
-        .then((res) => res.json())
-        .then(setHistory);
-    };
+    fetch("http://localhost:4001/history")
+      .then((res) => res.json())
+      .then(setHistory);
   }, []);
 
   const stats = useMemo(() => calculatePerformance(history), [history]);

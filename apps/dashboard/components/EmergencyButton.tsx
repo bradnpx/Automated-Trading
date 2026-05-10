@@ -1,9 +1,11 @@
 "use client";
+import { useTradingSocket } from "@/context/SocketContext";
 import React, { useState } from "react";
 
 export default function EmergencyButton() {
+  const { engineStatus } = useTradingSocket()
+  const isDead = engineStatus === "KILLED"
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "dead">("idle");
 
   const handlePanic = async () => {
     if (!confirm("Are you sure? This will sell everything immediately")) return;
@@ -40,11 +42,11 @@ export default function EmergencyButton() {
       <div className="p-6 border-2 border-red-500 rounded-lg bg-red-900">
         <h2 className="text-red-500 font-bold mb-4">SYSTEM SAFETY</h2>
 
-        {status !== "dead" ? (
+        {!isDead ? (
           <button
             onClick={handlePanic}
             disabled={loading}
-            className={`w-full py-4 text-white font-black rounded-md shadow-xl transition-transform active:scale-95 ${status === "dead" ? "bg-gray-500" : "bg-red-600 hover:bg-red-700"}`}
+            className={`w-full py-4 text-white font-black rounded-md shadow-xl transition-transform active:scale-95 ${isDead ? "bg-gray-500" : "bg-red-600 hover:bg-red-700"}`}
           >
             {loading
               ? "EXECUTING..."
@@ -59,7 +61,7 @@ export default function EmergencyButton() {
             {loading ? "RESYNCING..." : "RE-ENABLE ENGINE"}
           </button>
         )}
-        {status === "dead" && (
+        {isDead && (
           <p className="mt-2 text-xs text-red-600 text-center uppercase tracking-wideset">
             Manual Reset Required on Server
           </p>
