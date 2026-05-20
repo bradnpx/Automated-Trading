@@ -23,8 +23,8 @@ export default function Home() {
         <PortfolioTable />
       </div>
       <div className="col-span-12">
-        bitches
-        <ScannerAlerts />
+        {/* bitches */}
+        {/* <ScannerAlerts /> */}
       </div>
       <div className="col-span-12">
         <TradeHistory />

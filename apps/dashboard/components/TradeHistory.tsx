@@ -3,13 +3,35 @@ import { useEffect, useState } from "react";
 import { TradeRecord } from "@my-platform/types";
 
 export default function TradeHistory() {
-  const [history, setHistory] = useState<TradeRecord[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchHistory = async () => {
+    try {
+      const response = await fetch("http://localhost:4001/history");
+      const data = await response.json();
+      setHistory(data);
+    } catch (error) {
+      setError(`Failed to load trade history: ${error as string}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetch("http://localhost:4001/history")
-      .then((res) => res.json())
-      .then(setHistory);
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 30000);
+    return () => clearInterval(interval);
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        Fetching trade history...
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -39,7 +61,7 @@ export default function TradeHistory() {
                 >
                   {t.side}
                 </td>
-                <td className="px-4 py-2 font-mono">${t.price.toFixed(2)}</td>
+                <td className="px-4 py-2 font-mono">{t.price ? t.price : ''}</td>
                 <td
                   className={`px-4 py-2 font-mono font-bold ${t.pnl && t.pnl >= 0 ? "text-green-600" : "text-red-600"}`}
                 >
