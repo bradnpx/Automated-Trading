@@ -1,11 +1,10 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import path from "path";
-import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
+import { startApiService } from "./api.js";
 import { fileURLToPath } from "url";
 import { BarSchema } from "@my-platform/types";
-import { BiotechMomentumStrategy } from "./strategy.js";
+import { BiotechMomentumStrategy } from "./strategies/BiotechMomentum.js";
 import { PDLSweepVWAPReclaim } from "./strategies/pdl-vwap.js";
 import { PositionManager } from "./positions.js";
 import { Executor } from "./executor.js";
@@ -16,11 +15,11 @@ import { Scanner } from "./scanner.js";
 declare module "express";
 declare module "cors";
 
-// 1. ENVIRONMENT CONFIGURATION
+// Environment Config
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
-// 2. INITIALIZATION
+// Init
 const alpaca = new Alpaca();
 const posManager = new PositionManager(alpaca);
 const executor = new Executor(alpaca);
@@ -37,80 +36,12 @@ const tradeStream = alpaca.trade_ws;
 // test flags
 let ranTestBuy: boolean = false;
 
-// KILL SWITCH FUNCTIONALITY
-// Safety flag for Kill switch
-let isKilled = false;
-const app = express();
-app.use(cors());
-app.use(express.json());
+const engineState = {isKilled: false};
 
-/**
- * App Signals
- */
-app.get("/history", async (req, res) => {
-  try {
-    const history = await getTradeHistory();
-    res.json(history.reverse());
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch history" });
-  }
-});
+// Initialize API service
+startApiService({ posManager, executor, broadcaster, engineState })
 
-app.post("/reset", async (req, res) => {
-  isKilled = false;
-  broadcaster.broadcastStatus("ACTIVE");
-  await posManager.syncPositions();
-
-  console.log("♻️  RESET INITIATED: Restoring engine functionality...");
-
-  res.status(200).json({ message: "Engine Resumed" });
-});
-
-app.post("/panic", async (req, res) => {
-  isKilled = true;
-  broadcaster.broadcastStatus("KILLED");
-  const result = await executor.killEverything();
-
-  if (result.success) {
-    res.status(200).json({ message: "Engine Neutered Successfully" });
-  } else {
-    res.status(500).json({ error: "Panic failed partially" });
-  }
-});
-
-app.post("/close", async (req, res) => {
-  const { symbol } = req.body;
-
-  if (!symbol) {
-    return res.status(400).json({ error: "Symbol is required" });
-  }
-
-  try {
-    await executor.closePosition(symbol);
-
-    broadcaster.broadcastSignal({
-      symbol,
-      action: "SELL",
-      confidence: 1,
-      reason: "Manual close from dashboard",
-    });
-
-    console.log(`🔴 Manually closed position: ${symbol}`);
-    if (res.status(200)) {
-      res.status(200).json({ message: `Position closed: ${symbol}` });
-      await posManager.syncPositions();
-    } else {
-      res.status(500).json({ error: `Failed to close position: ${symbol}` });
-    }
-  } catch (err) {
-    console.error(`❌ Failed to close ${symbol}:`, err);
-    res.status(500).json({ error: `Failed to close position: ${symbol}` });
-  }
-});
-
-app.listen(4001, () => console.log("🚨 Kill Switch API live on port 4001"));
-
-// 3. LIFECYCLE METHODS
+// LIFECYCLE METHODS
 async function checkAccountHealth() {
   console.log("--- 🚀 Initializing Trading Engine Health Check ---");
   try {
@@ -225,7 +156,7 @@ async function checkPositionsForExits() {
     // return;
   }
 
-  console.log("Pending Exits: ", posManager.getPendingExits());
+  // console.log("Pending Exits: ", posManager.getPendingExits());
 
   try {
     await posManager.syncPositions();
