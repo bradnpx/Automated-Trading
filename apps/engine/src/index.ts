@@ -32,8 +32,7 @@ let isMarketConnected = false;
 let isTradeConnected = false;
 
 const marketStream = alpaca.data_stream_v2;
-// const tradeStream = alpaca.websockets;
-// const tradeStream = alpaca.trade_updates_v2;
+const tradeStream = alpaca.trade_ws;
 
 // test flags
 let ranTestBuy: boolean = false;
@@ -221,8 +220,9 @@ async function warmupStrategies() {
 }
 
 async function checkPositionsForExits() {
+  // console.log(checkPositionsForExits, posManager.getPendingExits());
   if (posManager.getPendingExits().size === 0) {
-    return;
+    // return;
   }
 
   console.log("Pending Exits: ", posManager.getPendingExits());
@@ -270,6 +270,12 @@ function setupStreamHandlers() {
     marketStream.subscribeForBars(SCAN_LIST);
   });
 
+  // Setup Trade Stream
+  tradeStream.onConnect(() => {
+    console.log("🤝 Trade WebSocket: Connected");
+    tradeStream.subscribe(["trade_updates"]);
+  });
+
   //   marketStream.onAuthenticated(() => {
   //     isMarketConnected = true;
   //     console.log("✅ Market Stream Authenticated");
@@ -292,7 +298,9 @@ function setupStreamHandlers() {
           barData.c ??
           0,
         volume: barData.Volume ?? barData.volume ?? barData.v ?? 0,
+        current: barData.current_price ?? 0,
       });
+      console.log(bar);
 
       // A. CHECK EXITS (This must happen first)
       if (posManager.hasPosition(bar.symbol)) {
@@ -364,7 +372,7 @@ function setupStreamHandlers() {
       }
 
       // ⚠️ COMMENT TO FIX STOPLOSS: Do not force buy MRNA here or it will override your Stop Loss!
-      if (bar.symbol === "PTON" && !ranTestBuy) {
+      if (bar.symbol === "QQQ" && !ranTestBuy) {
         // const account = await alpaca.getAccount();
         const qty = 1;
         // const qty = (parseFloat(account.equity) * RISK_PER_TRADE) / bar.close;
@@ -383,10 +391,109 @@ function setupStreamHandlers() {
   });
 
   marketStream.onError((err: any) => console.error("Stream Error:", err));
+
+  // Listen for execution fills
+  tradeStream.onOrderUpdate(async (data: any) => {
+    console.log("DEBUG: Raw Trade Update Keys:", Object.keys(data));
+    if (data.order)
+      console.log("DEBUG: Order Object Keys:", Object.keys(data.order));
+
+    const { event, order, price, fillQty } = data;
+
+    // Only log when we get a 'fill' (or 'partial_fill')
+    if (event === "fill" || event === "partial_fill") {
+      const fillPrice = parseFloat(price || order.filled_avg_price || 0);
+      const qty = parseFloat(fillQty || order.filled_qty || 0);
+
+      if (fillPrice === 0) {
+        console.warn(
+          `⚠️ Warning: Fill price is 0 for ${order.symbol}. Check raw data:`,
+          data,
+        );
+        return;
+      }
+
+      console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fillPrice}`);
+
+      // Calculate PnL relative to your position manager's average entry
+      const pos = posManager
+        .getPositions()
+        .find((p) => p.symbol === order.symbol);
+      const entry = pos ? parseFloat(pos.avg_entry_price) : 0;
+
+      let pnl = 0;
+      let pnlPct = 0;
+
+      if (order.side === "sell" && entry > 0) {
+        pnl = (fillPrice - entry) * qty;
+        pnlPct = (fillPrice - entry) / entry;
+      }
+
+      // LOG THE TRADE
+      await logTrade({
+        symbol: order.symbol,
+        side: order.side.toUpperCase(),
+        qty: qty.toString(),
+        price: fillPrice.toString(),
+        pnl: pnl,
+        pnl_pct: pnlPct,
+        timestamp: new Date().toISOString(),
+        reason: order.side === "sell" ? "Exit" : "Entry",
+      });
+
+      // Update the dashboard UI
+      await posManager.syncPositions();
+      broadcaster.broadcastPortfolio(posManager.getPositions());
+    }
+  });
+
+  // tradeStream.onOrderUpdate(async (data: any) => {
+  //   console.log("DEBUG: Raw Trade Update Keys:", Object.keys(data));
+  //   if (data.order)
+  //     console.log("DEBUG: Order Object Keys:", Object.keys(data.order));
+  //   // ...
+  //   const { event, order, price } = data;
+
+  //   if (event === "fill" || event === "partial_fill") {
+  //     const executionPrice = parseFloat(price || order.filled_avg_price || 0);
+
+  //     if (executionPrice === 0) {
+  //       console.warn(
+  //         `⚠️ Warning: Received a fill for ${order.symbol} but price is still 0/null.`,
+  //       );
+  //       console.log(
+  //         "Full Data Payload for debugging:",
+  //         JSON.stringify(data, null, 2),
+  //       );
+  //       return;
+  //     }
+
+  //     const qty = parseFloat(order.filled_qty || data.qty);
+  //     console.log(`✅ REAL FILL: ${order.symbol} @ $${executionPrice}`);
+
+  //     await logTrade({
+  //       symbol: order.symbol,
+  //       side: order.side.toUpperCase(),
+  //       qty: qty.toString(),
+  //       price: executionPrice.toString(),
+  //       pnl: 0,
+  //       pnl_pct: 0,
+  //       timestamp: new Date().toISOString(),
+  //       reason: order.side === "sell" ? "Exit" : "Entry",
+  //     });
+  //   }
+  // })
+  tradeStream.connect();
 }
 
-// 5. EXECUTION ENTRY POINT (KEEP THIS!)
 async function main() {
+  console.log(
+    "🔍 Alpaca Properties:",
+    Object.keys(alpaca).filter(
+      (k) =>
+        k.toLowerCase().includes("trade") || k.toLowerCase().includes("stream"),
+    ),
+  );
   await checkAccountHealth();
   await posManager.syncPositions();
   await warmupStrategies();

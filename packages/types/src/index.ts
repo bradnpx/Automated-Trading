@@ -61,9 +61,9 @@ export interface AccountPayload {
 
 export interface TradeRecord {
     symbol: string;
-    side: 'BUY' | 'SELL';
-    qty: number;
-    price: number;
+    side: 'buy' | 'sell';
+    qty: string;
+    price: string;
     pnl?: number;
     pnl_pct?: number;
     timestamp: string;

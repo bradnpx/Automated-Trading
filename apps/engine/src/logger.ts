@@ -4,26 +4,34 @@ import { TradeRecord } from "@my-platform/types";
 
 const LOG_PATH = path.resolve(process.cwd(), "logs/trades.json");
 
-export async function logTrade(record: TradeRecord) {
+export async function logTrade(trade: TradeRecord) {
+  const entry = JSON.stringify(trade).replace(/\n/g, "") + "\n";
   try {
-    await fs.mkdir(path.dirname(LOG_PATH), { recursive: true });
-
-    const logEntry = JSON.stringify(record) + "\n";
-    console.log("Logging Trade...")
-    console.log(logEntry)
-    await fs.appendFile(LOG_PATH, logEntry, "utf8");
+    await fs.appendFile(LOG_PATH, entry, "utf8");
   } catch (err) {
-    console.error("❌ Failed to log trade:", err);
+    console.error("❌ Failed to write to log file", err);
   }
+  console.log("Trade Logged");
 }
 
-export async function getTradeHistory(): Promise<TradeRecord[]> {
+export async function getTradeHistory() {
   try {
     const data = await fs.readFile(LOG_PATH, "utf8");
+
+    // Split by line, trim whitespace, and filter out empty lines
     return data
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line, index) => {
+        try {
+          return JSON.parse(line);
+        } catch (e) {
+          console.error(`❌ Parse Error on line ${index + 1}:`, line);
+          return null;
+        }
+      })
+      .filter((item) => item !== null);
   } catch (err) {
     return [];
   }

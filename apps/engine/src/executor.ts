@@ -11,7 +11,7 @@ export class Executor {
   /**
    * Places a market order to enter a position
    */
-  async placeBuyOrder(symbol: string, qty: number) {
+  async placeBuyOrder(symbol: string, qty: number, price: number) {
     try {
       const order = await this.alpaca.createOrder({
         symbol,
@@ -23,7 +23,7 @@ export class Executor {
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
-      logTrade(order);
+      logTrade({...order, filled_at: new Date()});
       return order;
     } catch (err) {
       console.error(`❌ [EXEC] Buy Order Failed for ${symbol}:`, err);
