@@ -1,7 +1,8 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { RSI, VWAP } from "technicalindicators";
+import { IStrategy } from "./IStrategy";
 
-export class BiotechMomentumStrategy {
+export class BiotechMomentumStrategy implements IStrategy {
   private history: Bar[] = [];
   private readonly lookback = 14;
   private readonly VOLUME_MULTIPLIER = 2.0;
@@ -14,7 +15,7 @@ export class BiotechMomentumStrategy {
   /**
    * Processes a new bar and returns a signal
    */
-  public update(bar: Bar): TradeSignal {
+  public evaluateStrategy(bar: Bar): TradeSignal {
     this.history.push(bar);
     if (this.history.length > 100) this.history.shift(); // Keep memory lean
 

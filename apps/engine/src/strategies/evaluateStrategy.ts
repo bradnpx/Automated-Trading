@@ -1,14 +1,17 @@
 import { Bar } from "@my-platform/types";
-import { getPremarketChange } from "../functions/getPremarketChange";
-import getTradingSession from "../functions/getTradingSession";
+import { getPremarketChange } from "../functions/getPremarketChange.js";
+import getTradingSession from "../functions/getTradingSession.js";
+import checkForBounce from "../functions/checkForBounce.js";
 
-// Define a strict TypeScript union of all testable criteria
 export type StrategyCriterion =
   | "isInSession"
+  | "isPremarket"
   | "isInPriceRange"
   | "isAboveTen"
   | "isSurgingVolume"
-  | "isBullish";
+  | "isBullish"
+  | "isFifteenMinutes"
+  | "isBounced";
 
 export class EvaluateStrategy {
   private history: Bar[] = [];
@@ -17,11 +20,6 @@ export class EvaluateStrategy {
     this.history = [...bars];
   }
 
-  /**
-   * Evaluates a candlestick bar against a specific, dynamic list of rules.
-   * @param bar The current market bar data
-   * @param criteriaToTest Array of specific rule keys you want to enforce right now
-   */
   public async evaluate(
     bar: Bar,
     criteriaToTest: StrategyCriterion[],
@@ -30,11 +28,17 @@ export class EvaluateStrategy {
     this.history.push(bar);
     if (this.history.length > 200) this.history.shift();
 
-    const report: Record<string, boolean> = {};
+    // Guard debugging logs to prevent "undefined reading" runtime crashes during startup
+    if (this.history.length >= 3) {
+      console.log("DEBUG Bar Memory Check - Head/Tail snapshots:", {
+        earliest: this.history[0].timestamp,
+        current: this.history[this.history.length - 1].timestamp,
+      });
+    }
 
-    // Cache layer to ensure we call Polygon at most ONCE per bar execution,
-    // and ONLY if an async rule actually demands it.
+    const report: Record<string, boolean> = {};
     let premarketCache: any = null;
+
     const getPremarket = async () => {
       if (!premarketCache) {
         premarketCache = await getPremarketChange(bar.symbol);
@@ -47,8 +51,13 @@ export class EvaluateStrategy {
       switch (criterion) {
         case "isInSession": {
           const session = getTradingSession();
-          report["isInSession"] =
-            session === "premarket" || session === "market";
+          report["isInSession"] = session === "market";
+          break;
+        }
+
+        case "isPremarket": {
+          const session = getTradingSession();
+          report["isPremarket"] = session === "premarket";
           break;
         }
 
@@ -70,6 +79,17 @@ export class EvaluateStrategy {
           const data = await getPremarket();
           report["isSurgingVolume"] = data
             ? data.premarketVolume >= 500
+            : false;
+          break;
+        }
+
+        case "isBounced": {
+          // Since "bar" was pushed at line 20, length - 1 is the CURRENT bar.
+          // The actual true prior bar data resides safely at index footprint length - 2.
+          const priorBar = this.history[this.history.length - 2];
+
+          report["isBounced"] = priorBar
+            ? checkForBounce({ sourceBar: priorBar, targetBar: bar })
             : false;
           break;
         }
