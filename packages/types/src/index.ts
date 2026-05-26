@@ -6,11 +6,10 @@ export const SOCKET_EVENTS = {
   UPDATE: "trade_update",
   ERROR: "engine_error",
   STATUS: "engine_status",
-  ACCOUNT: 'account_update',
-  SCANNER: 'scanner_alert',
-  HEALTH: 'system_health'
+  ACCOUNT: "account_update",
+  SCANNER: "scanner_alert",
+  HEALTH: "system_health",
 } as const;
-
 
 export const OrderSchema = z.object({
   id: z.string().uuid(),
@@ -52,29 +51,39 @@ export interface SocketBarPayload {
 }
 
 export interface AccountPayload {
-    equity: number;
-    buying_power: number;
-    cash: number;
-    day_pl: number;
-    day_pl_pct: number;
+  equity: number;
+  buying_power: number;
+  cash: number;
+  day_pl: number;
+  day_pl_pct: number;
 }
 
 export interface TradeRecord {
-    symbol: string;
-    side: 'buy' | 'sell';
-    qty: string;
-    price: string;
-    pnl?: number;
-    pnl_pct?: number;
-    timestamp: string;
-    reason: string
+  symbol: string;
+  side: "buy" | "sell";
+  qty: string;
+  price: string;
+  pnl?: number;
+  pnl_pct?: number;
+  timestamp: string;
+  reason: string;
+  win_status: "WIN" | "LOSS" | "BREAKEVEN" | "OPENING";
 }
 
 export interface HealthStatus {
-    latency: number;
-    alpacaStream: 'CONNECTED' | 'DISCONNECTED';
-    polygonStream?: 'CONNECTED' | 'DISCONNECTED';
-    memoryUsage: string;
-    uptime: string;
-    timestamp: string;
+  latency: number;
+  alpacaStream: "CONNECTED" | "DISCONNECTED";
+  polygonStream?: "CONNECTED" | "DISCONNECTED";
+  memoryUsage: string;
+  uptime: string;
+  timestamp: string;
+}
+
+export interface WinRateReport {
+  winRate: number;
+  totalCompletedTrades: number;
+  wins: number;
+  losses: number;
+  breakevens: number;
+  netRealizedPnL: number;
 }

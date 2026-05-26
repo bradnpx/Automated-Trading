@@ -9,7 +9,7 @@ export class BasicStrategy implements IStrategy {
 
   // Set the precise criteria manifest this specific strategy is responsible for verifying
   private criteria: StrategyCriterion[] = [
-    "isBullish",
+    "isAlive",
   ];
 
   public hydrate(bars: Bar[], prevLow?: number) {

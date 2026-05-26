@@ -1,10 +1,11 @@
 import { StrategyIdentifier } from "./strategies/StrategyFactory";
 
+
 export const WATCHLIST_CONFIGS = [
   {
     name: "Basic Strategy Test",
     strategy: "basicStrategy" as StrategyIdentifier,
-    symbols: ["CAKE"],
+    symbols: [],
   },
   {
     name: "15-minute Morning SPX bounce",
@@ -24,6 +25,10 @@ export const WATCHLIST_CONFIGS = [
 ];
 
 export const SYMBOL_STRATEGY_MAP: Record<string, StrategyIdentifier> = {};
+// export const SYMBOL_STRATEGY_MAP: Record<string, StrategyIdentifier> = {
+//   CAKE: "basicStrategy", // ← or whatever test symbol you want
+//   // ...
+// };
 export const ALL_TRACKED_SYMBOLS: string[] = [];
 
 for (const list of WATCHLIST_CONFIGS) {
@@ -39,7 +44,4 @@ export const TRADING_CONFIG = {
   RISK_PER_TRADE: 0.05, // 5% of total equity
   PORT_WS_BROADCASTER: 4000,
   PORT_KILL_SWITCH_API: 4001,
-  // todo: move watchlists
-  WATCHLIST: ["SPY", "AAPL", "QQQ", "NVDA"],
-  SCAN_LIST: ["SPY", "AAPL", "QQQ", "NVDA", "MSFT", "META", "IWM"],
 };

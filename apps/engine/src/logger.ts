@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { TradeRecord } from "@my-platform/types";
+import { TradeRecord, WinRateReport } from "@my-platform/types";
 
 const LOG_PATH = path.resolve(process.cwd(), "logs/trades.json");
 
@@ -34,5 +34,53 @@ export async function getTradeHistory() {
       .filter((item) => item !== null);
   } catch (err) {
     return [];
+  }
+}
+
+export async function calculateWinRateMetrics(): Promise<WinRateReport> {
+  const history = await getTradeHistory();
+
+  const completedExits = history.filter(
+    (trade: any) => trade.reason === "Exit",
+  );
+
+  if (completedExits.length === 0) {
+    return {
+      winRate: 0,
+      totalCompletedTrades: 0,
+      wins: 0,
+      losses: 0,
+      breakevens: 0,
+      netRealizedPnL: 0,
+    };
+  }
+
+  let wins = 0;
+  let losses = 0;
+  let breakevens = 0;
+  let netRealizedPnL = 0;
+
+  for (const trade of completedExits) {
+    netRealizedPnL += trade.pnl || 0;
+
+    if (trade.win_status === "WIN") {
+      wins++;
+    } else if (trade.win_status === "LOSS") {
+      losses++;
+    } else if (trade.win_status === "BREAKEVEN") {
+      breakevens++;
+    }
+  }
+
+  const totalDecisiveTrades = wins + losses;
+  const winRate = totalDecisiveTrades > 0 ? (wins / totalDecisiveTrades) * 100 : 0
+
+  return {
+    winRate: parseFloat(winRate.toFixed(2)),
+    totalCompletedTrades: completedExits.length,
+    wins,
+    losses,
+    breakevens,
+    netRealizedPnL: parseFloat(netRealizedPnL.toFixed(2))
   }
 }

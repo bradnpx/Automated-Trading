@@ -1,80 +1,56 @@
+// src/strategies/BiotechMomentum.ts
 import { Bar, TradeSignal } from "@my-platform/types";
-import { RSI, VWAP } from "technicalindicators";
-import { IStrategy } from "./IStrategy";
+import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
+import { IStrategy } from "./IStrategy.js";
 
 export class BiotechMomentumStrategy implements IStrategy {
-  private history: Bar[] = [];
-  private readonly lookback = 14;
-  private readonly VOLUME_MULTIPLIER = 2.0;
+  private evaluator = new EvaluateStrategy();
 
-  public hydrate(bars: Bar[]) {
-    this.history = [...bars];
-    console.log(`Loaded ${this.history.length} historical bars for warmup.`);
+  // Declarative strategy configuration manifest
+  private criteria: StrategyCriterion[] = [
+    "isRsiBelow70",
+    "isAboveRollingVWAP",
+    "isRollingVolumeSurge",
+  ];
+
+  public hydrate(bars: Bar[], prevLow?: number) {
+    // Pipe lookback historical bars straight into rules parser context memory
+    this.evaluator.hydrate(bars);
+    console.log(
+      `Loaded ${bars.length} historical bars for Biotech Momentum context.`,
+    );
   }
 
-  /**
-   * Processes a new bar and returns a signal
-   */
-  public evaluateStrategy(bar: Bar): TradeSignal {
-    this.history.push(bar);
-    if (this.history.length > 100) this.history.shift(); // Keep memory lean
+  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+    try {
+      const verification = await this.evaluator.evaluate(bar, this.criteria);
+      const { meetsCriteria, metrics } = verification;
 
-    if (this.history.length < this.lookback) {
+      const action = meetsCriteria ? "BUY" : "HOLD";
+      // Access centralized indicator tracking safely to compute scalable confidence levels
+      const confidence = meetsCriteria
+        ? Math.min(0.5 + metrics.rvol / 10, 1)
+        : 0;
+
+      return {
+        symbol: bar.symbol,
+        action,
+        confidence,
+        reason: meetsCriteria
+          ? `TRIPLE CONFIRMED: Price ($${bar.close}) > VWAP, RSI at ${metrics.rsi.toFixed(1)}, and RVOL at ${metrics.rvol.toFixed(2)}x`
+          : `WAITING: Criteria validation triggers unfulfilled.`,
+      };
+    } catch (error) {
+      console.error(
+        `Error processing BiotechMomentum Strategy block for ${bar.symbol}:`,
+        error,
+      );
       return {
         symbol: bar.symbol,
         action: "HOLD",
         confidence: 0,
-        reason: "Warming up...",
+        reason: "Internal tracking validation error.",
       };
     }
-    // 1. Calculate Indicators
-    const prices = this.history.map((b) => b.close);
-    const volumes = this.history.map((b) => b.volume);
-
-    // Simple RSI calculation
-    const rsiValues = RSI.calculate({ values: prices, period: this.lookback });
-    const currentRSI = rsiValues[rsiValues.length - 1];
-
-    // VWAP Confirmation
-    // (Note: Real VWAP requires intraday cumulative data,
-    // but we'll use a rolling session-based mock here)
-    const currentVWAP = this.calculateRollingVWAP();
-
-    // Calculate Volume Surge (RVOL)
-    // We look at the last 20 bars to determine Average volume
-    const recentBars = this.history.slice(-21, -1); // -1 exclude current bar
-    const avgVolume =
-      recentBars.reduce((sum, b) => sum + b.volume, 0) / recentBars.length;
-    const rvol = bar.volume / avgVolume;
-
-    const isTrending = bar.close > currentVWAP;
-    const hasRoom = currentRSI < 70;
-    const isSurging = rvol >= this.VOLUME_MULTIPLIER;
-
-    const isBullish = isTrending && hasRoom && isSurging;
-    const action = isBullish ? "BUY" : "HOLD";
-
-    // Dynamic Confidence
-    // Scale confidence based on RVOL (a 5x surge is more 'confident' than a 2x surge)
-    const confidence = isBullish ? Math.min(0.5 + rvol / 10, 1) : 0;
-
-    return {
-      symbol: bar.symbol,
-      action,
-      confidence: confidence,
-      reason: isBullish
-        ? `TRIPLE CONFIRMED: Price ($${bar.close}) > VWAP, RSI at ${currentRSI.toFixed(1)}, and RVOL at ${rvol.toFixed(2)}x`
-        : `WAITING: ${!isTrending ? "Price < VWAP" : !hasRoom ? "Overbought (RSI > 70)" : "Low Volume Surge"}`,
-    };
-  }
-
-  private calculateRollingVWAP(): number {
-    const recent = this.history.slice(-20);
-    const totalTypicalPriceVolume = recent.reduce(
-      (sum, b) => sum + b.close * b.volume,
-      0,
-    );
-    const totalVolume = recent.reduce((sum, b) => sum + b.volume, 0);
-    return totalVolume === 0 ? 0 : totalTypicalPriceVolume / totalVolume;
   }
 }
