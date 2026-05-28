@@ -34,13 +34,13 @@ export default function TradeHistory() {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-100 font-bold text-slate-700 text-sm">
+    <div className="">
+      <div className="p-4 border-b border-slate-100 font-bold text-slate-100 text-sm">
         Trade History
       </div>
-      <div className="max-h-96 overflow-y-auto">
-        <table className="w-full text-xs text-left">
-          <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] sticky top-0">
+      <div className="">
+        <table className="w-full text-[14px] text-left">
+          <thead className="text-slate-500 uppercase text-[12px] sticky top-0">
             <tr>
               <th className="px-4 py-2">Symbol</th>
               <th className="px-4 py-2">Side</th>

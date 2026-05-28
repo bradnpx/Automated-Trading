@@ -7,9 +7,12 @@ import PerformanceStats from "@/components/PerformanceStats";
 import TradeHistory from "@/components/TradeHistory";
 import ScannerAlerts from "@/components/ScannerAlerts";
 import HealthMonitor from "@/components/HealthMonitor";
+import Nav from "@/components/Navigation";
 
 export default function Home() {
   return (
+    <>
+    <Nav></Nav>
     <div className="grid grid-cols-12 gap-6 p-5">
       <div className="col-span-12">
         <AccountSummary />
@@ -24,16 +27,17 @@ export default function Home() {
       </div>
       <div className="col-span-12">
         {/* bitches */}
-        {/* <ScannerAlerts /> */}
+        <ScannerAlerts />
       </div>
-      <div className="col-span-12">
+      {/* <div className="col-span-12">
         <TradeHistory />
-      </div>
+      </div> */}
       <div className="col-span-12">
         <HealthMonitor />
       </div>
 
       {/* ... ticker table and rest of layout */}
     </div>
+    </>
   );
 }

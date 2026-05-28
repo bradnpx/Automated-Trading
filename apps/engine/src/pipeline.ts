@@ -43,6 +43,7 @@ export class StreamPipeline {
       marketStream.subscribeForBars(ALL_TRACKED_SYMBOLS);
     });
 
+    let strategy = ''
     marketStream.onStockBar(async (barData: any) => {
       try {
         const bar = this.parseBar(barData);
@@ -58,10 +59,10 @@ export class StreamPipeline {
         await this.handleScannerAndWarmup(bar);
 
         // D. Process active target strategy evaluation filters
-        await this.handleStrategyEntries(bar);
+        strategy = await this.handleStrategyEntries(bar);
 
         // E. Optional Sandbox Test Orders
-        if (bar.symbol === "QQQ") {
+        if (bar.symbol === "F") {
           await this.runTestBuy(bar.symbol);
         }
       } catch (err) {
@@ -127,7 +128,7 @@ export class StreamPipeline {
             pnl: pnl,
             pnl_pct: pnlPct,
             timestamp: new Date().toISOString(),
-            reason: order.side === "sell" ? "Exit" : "Entry",
+            reason: order.side === "sell" ? "Exit" : strategy,
             win_status: winStatus,
           });
 
@@ -183,7 +184,7 @@ export class StreamPipeline {
 
   private async handleScannerAndWarmup(bar: any) {
     console.log("handleScannerAndWarmup🥬");
-    const { isHot, rvol } = this.scanner.processBar(bar.symbol, bar.volume);
+    const { isHot, rvol } = this.scanner.processBar(bar.symbol, bar.volume, bar.close);
 
     if (isHot && !this.strategies.has(bar.symbol)) {
       this.broadcaster.broadcastScannerAlert(bar.symbol, rvol);
@@ -201,8 +202,6 @@ export class StreamPipeline {
       // 3. Dynamically instantiate the strategy class template via the Factory Line
       if (strategyToCreate) {
         const newStrategy = StrategyFactory.create(strategyToCreate);
-
-        // 4. Transform baseline boundaries and assign the instance
         const prevLow = await getPreviousDayLow(this.alpaca, bar.symbol);
         newStrategy.hydrate([bar], prevLow);
         this.strategies.set(bar.symbol, newStrategy);
@@ -240,6 +239,7 @@ export class StreamPipeline {
         this.broadcaster.broadcastSignal(signal);
         await this.executor.placeBuyOrder(bar.symbol, qty);
         await this.posManager.syncPositions();
+        return strategy.constructor.name
       }
     }
   }

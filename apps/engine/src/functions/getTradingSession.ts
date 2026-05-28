@@ -7,7 +7,7 @@ export default function getTradingSession() {
 
   if (nyHour >= 4 && nyHour <= 9 && min <= 30) {
     return "premarket";
-  } else if (nyHour >= 4 && nyHour <= 9 && min <= 30) {
+  } else if ((nyHour >= 9 && min >= 30) && nyHour >= 4) {
     return "market";
   } else if (nyHour >= 4 && nyHour <= 9 && min <= 30) {
     return "aftermarket";
