@@ -9,7 +9,7 @@ export class FifteenMinMorningBounce implements IStrategy {
   // Liquidity Sweep criteria map
   private criteria: StrategyCriterion[] = [
     "isInSession",
-    "isMorningSession",
+    "isWithinOpeningWindow",
     "isBounced",
   ];
 
