@@ -43,11 +43,10 @@ export class StreamPipeline {
       marketStream.subscribeForBars(ALL_TRACKED_SYMBOLS);
     });
 
-    let strategy = ''
     marketStream.onStockBar(async (barData: any) => {
       try {
         const bar = this.parseBar(barData);
-        console.log(`🍆onstockbar ${bar.symbol}`);
+        // console.log(`🍆 onstockbar ${bar.symbol}`);
 
         // A. Process exits instantly before evaluating new setups
         if (await this.handleExits(bar)) return;
@@ -59,7 +58,7 @@ export class StreamPipeline {
         await this.handleScannerAndWarmup(bar);
 
         // D. Process active target strategy evaluation filters
-        strategy = await this.handleStrategyEntries(bar);
+        await this.handleStrategyEntries(bar);
 
         // E. Optional Sandbox Test Orders
         if (bar.symbol === "F") {
@@ -70,7 +69,7 @@ export class StreamPipeline {
       }
     });
 
-    // --- TRADE EXECUTION REFORMS (Un-nested for performance) ---
+    // --- TRADE EXECUTION REFORMS ---
     tradeStream.onConnect(() => {
       console.log("🤝 Trade WebSocket: Connected");
       tradeStream.subscribe(["trade_updates"]);
@@ -103,7 +102,6 @@ export class StreamPipeline {
 
           let pnl = 0;
           let pnlPct = 0;
-
           let winStatus: "WIN" | "LOSS" | "BREAKEVEN" | "OPENING" = "OPENING";
 
           if (order.side === "sell" && entry > 0) {
@@ -113,11 +111,15 @@ export class StreamPipeline {
             if (pnl > 0) {
                 winStatus = "WIN";
             } else if (pnl < 0) {
-                winStatus = "LOSS"
+              winStatus = "LOSS";
             } else {
-                winStatus = "BREAKEVEN"
+              winStatus = "BREAKEVEN";
             }
           }
+
+          // FIX 2: Dynamic Strategy Name Determination (Resolves the global variable race condition)
+          const matchedStrategyId =
+            SYMBOL_STRATEGY_MAP[order.symbol] || "UnknownStrategy";
 
           // Persist metrics out to local analytics structures
           await logTrade({
@@ -128,7 +130,7 @@ export class StreamPipeline {
             pnl: pnl,
             pnl_pct: pnlPct,
             timestamp: new Date().toISOString(),
-            reason: order.side === "sell" ? "Exit" : strategy,
+            reason: order.side === "sell" ? "Exit" : matchedStrategyId,
             win_status: winStatus,
           });
 
@@ -168,6 +170,7 @@ export class StreamPipeline {
     );
 
     if (shouldExit) {
+      console.log(`🚨 Exit condition met for ${bar.symbol}: ${reason}`);
       this.posManager.markPendingExit(bar.symbol);
       await this.executor.closePosition(bar.symbol);
       this.broadcaster.broadcastSignal({
@@ -183,23 +186,23 @@ export class StreamPipeline {
   }
 
   private async handleScannerAndWarmup(bar: any) {
-    console.log("handleScannerAndWarmup🥬");
-    const { isHot, rvol } = this.scanner.processBar(bar.symbol, bar.volume, bar.close);
+    // console.log("handleScannerAndWarmup🥬");
+    const { isHot, rvol } = this.scanner.processBar(
+      bar.symbol,
+      bar.volume,
+      bar.close,
+    );
 
     if (isHot && !this.strategies.has(bar.symbol)) {
       this.broadcaster.broadcastScannerAlert(bar.symbol, rvol);
 
-      // 1. Check your configuration dictionary to see which strategy maps to this symbol
       const targetStrategyKey = SYMBOL_STRATEGY_MAP[bar.symbol];
-
-      // 2. Resolve the matching strategy key
       const strategyToCreate = targetStrategyKey;
 
       console.log(
         `🎯 Routing breakout ticker ${bar.symbol} to factory context: [${strategyToCreate}]`,
       );
 
-      // 3. Dynamically instantiate the strategy class template via the Factory Line
       if (strategyToCreate) {
         const newStrategy = StrategyFactory.create(strategyToCreate);
         const prevLow = await getPreviousDayLow(this.alpaca, bar.symbol);
@@ -210,20 +213,19 @@ export class StreamPipeline {
   }
 
   private async handleStrategyEntries(bar: any) {
-    console.log("🐋 handleStrategyEntries");
+    // console.log("🐋 handleStrategyEntries");
     const strategy = this.strategies.get(bar.symbol);
-    console.log(`${bar.symbol} ${strategy?.constructor.name}`);
     if (!strategy || this.engineState.isKilled) return;
 
+    console.log(`${bar.symbol} ${strategy.constructor.name}`);
     const signal = await strategy.evaluateStrategy(bar);
 
-    // 👇 ADD THIS SAFETY GUARD HERE 👇
-    if (!signal || typeof signal.action === 'undefined') {
+    if (!signal || typeof signal.action === "undefined") {
       console.error(
-        `❌ Strategy Error: ${strategy.constructor.name} for ${bar.symbol} returned an invalid or undefined signal object!`,
-        { signal }
+        `❌ Strategy Error: ${strategy.constructor.name} for ${bar.symbol} returned an invalid signal!`,
+        { signal },
       );
-      return; // Gracefully skip this bar instead of crashing the process
+      return;
     }
     
     if (
@@ -239,7 +241,6 @@ export class StreamPipeline {
         this.broadcaster.broadcastSignal(signal);
         await this.executor.placeBuyOrder(bar.symbol, qty);
         await this.posManager.syncPositions();
-        return strategy.constructor.name
       }
     }
   }

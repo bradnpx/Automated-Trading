@@ -42,11 +42,13 @@ export default function TradeHistory() {
         <table className="w-full text-[14px] text-left">
           <thead className="text-slate-500 uppercase text-[12px] sticky top-0">
             <tr>
+              <th className="px-4 py-2">Time</th>
               <th className="px-4 py-2">Symbol</th>
+              <th className="px-4 py-2">Qty</th>
               <th className="px-4 py-2">Side</th>
               <th className="px-4 py-2">Price</th>
               <th className="px-4 py-2">P&L</th>
-              <th className="px-4 py-2">Time</th>
+              <th className="px-4 py-2">Strategy</th>
             </tr>
           </thead>
           <tbody>
@@ -55,20 +57,24 @@ export default function TradeHistory() {
                 key={i}
                 className="border-t border-slate-50 hover:bg-slate-50"
               >
+                <td className="px-4 py-2 text-slate-400">
+                  {new Date(t.timestamp).toLocaleTimeString()}
+                </td>
                 <td className="px-4 py-2 font-bold">{t.symbol}</td>
                 <td
                   className={`px-4 py-2 font-bold ${t.side === "BUY" ? "text-blue-600" : "text-orange-600"}`}
                 >
                   {t.side}
                 </td>
+                <td className="px-4 py-2 font-mono">{t.qty ? t.qty : ''}</td>
                 <td className="px-4 py-2 font-mono">{t.price ? t.price : ''}</td>
                 <td
                   className={`px-4 py-2 font-mono font-bold ${t.pnl && t.pnl >= 0 ? "text-green-600" : "text-red-600"}`}
                 >
                   {t.pnl ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "-"}
                 </td>
-                <td className="px-4 py-2 text-slate-400">
-                  {new Date(t.timestamp).toLocaleTimeString()}
+                <td>
+                  {t.reason}
                 </td>
               </tr>
             ))}

@@ -62,12 +62,12 @@ export class EvaluateStrategy {
     this.history.push(bar);
     if (this.history.length > 200) this.history.shift();
 
-    if (this.history.length >= 3) {
-      console.log("DEBUG Bar Memory Check - Head/Tail snapshots:", {
-        earliest: this.history[0].timestamp,
-        current: this.history[this.history.length - 1].timestamp,
-      });
-    }
+    // if (this.history.length >= 3) {
+    //   console.log("DEBUG Bar Memory Check - Head/Tail snapshots:", {
+    //     earliest: this.history[0].timestamp,
+    //     current: this.history[this.history.length - 1].timestamp,
+    //   });
+    // }
 
     const report: Record<string, boolean> = {};
     let premarketCache: any = null;

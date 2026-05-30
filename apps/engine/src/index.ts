@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 
 // Custom Engine Modules
-import { PositionManager } from "./positions.js";
+import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { Scanner } from "./scanner.js";
@@ -44,7 +44,7 @@ async function main() {
     broadcaster,
     scanner,
     strategies,
-    engineState
+    engineState,
   );
   pipeline.initialize();
 

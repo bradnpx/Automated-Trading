@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { PositionManager } from "./positions.js";
+import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { getTradeHistory } from "./logger.js";
