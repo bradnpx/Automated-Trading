@@ -33,6 +33,15 @@ export default function TradeHistory() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        Oops! Something went wrong.
+        {error}
+      </div>
+    );
+  }
+
   return (
     <div className="">
       <div className="p-4 border-b border-slate-100 font-bold text-slate-100 text-sm">
@@ -58,7 +67,11 @@ export default function TradeHistory() {
                 className="border-t border-slate-50 hover:bg-slate-50"
               >
                 <td className="px-4 py-2 text-slate-400">
-                  {new Date(t.timestamp).toLocaleTimeString()}
+                  {
+                    t.timestamp ?
+                    new Date(t.timestamp).toLocaleDateString() + " " + new Date(t.timestamp).toLocaleTimeString()
+                    : ''
+                  }
                 </td>
                 <td className="px-4 py-2 font-bold">{t.symbol}</td>
                 <td
@@ -66,16 +79,16 @@ export default function TradeHistory() {
                 >
                   {t.side}
                 </td>
-                <td className="px-4 py-2 font-mono">{t.qty ? t.qty : ''}</td>
-                <td className="px-4 py-2 font-mono">{t.price ? t.price : ''}</td>
+                <td className="px-4 py-2 font-mono">{t.qty ? t.qty : ""}</td>
+                <td className="px-4 py-2 font-mono">
+                  {t.price ? t.price : ""}
+                </td>
                 <td
                   className={`px-4 py-2 font-mono font-bold ${t.pnl && t.pnl >= 0 ? "text-green-600" : "text-red-600"}`}
                 >
                   {t.pnl ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "-"}
                 </td>
-                <td>
-                  {t.reason}
-                </td>
+                <td>{t.reason}</td>
               </tr>
             ))}
           </tbody>

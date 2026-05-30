@@ -8,6 +8,7 @@ import {
 import { logTrade } from "./logger.js";
 import { getPreviousDayLow } from "./utils/market.js";
 import { StrategyFactory } from "./strategies/StrategyFactory.js";
+import { resolve } from "path";
 
 export class StreamPipeline {
   private static isGlobalInitialized = false;
@@ -40,6 +41,7 @@ export class StreamPipeline {
     // --- MARKET DATA STREAM SUBSCRIPTIONS ---
     marketStream.onConnect(() => {
       console.log("📡 Stream Pipeline: Connected to Market Data");
+      console.log(ALL_TRACKED_SYMBOLS);
       marketStream.subscribeForBars(ALL_TRACKED_SYMBOLS);
     });
 
@@ -79,18 +81,39 @@ export class StreamPipeline {
       try {
         const { event, order, price, fillQty } = data;
 
+        // FIX 1: Explicitly clear locks if an exit order is rejected, canceled, or expires
+        if (
+          event === "canceled" ||
+          event === "rejected" ||
+          event === "expired"
+        ) {
+          console.warn(
+            `🔓 Order update [${event}] received for ${order.symbol}. Releasing pending exit lock.`,
+          );
+          this.posManager.clearPendingExit(order.symbol);
+          await this.posManager.syncPositions();
+          this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
+          return;
+        }
+
         // Only process and broadcast on official fill checkpoints
         if (event === "fill" || event === "partial_fill") {
-          const fillPrice = parseFloat(price || order.filled_avg_price || 0);
-          const qty = parseFloat(fillQty || order.filled_qty || 0);
+          let fillPrice = parseFloat(price || 0);
+          let qty = parseFloat(fillQty || 0);
 
-          if (fillPrice === 0) {
-            console.warn(
-              `⚠️ Warning: Fill price is 0 for ${order.symbol}.`,
-              data,
-            );
-            return;
+          // Fallback guard: If root variables are empty, fall back onto cumulative aggregates ONLY if it's the final fill checkpoint
+          if (fillPrice === 0 || qty === 0) {
+            if (event === "fill") {
+              fillPrice = parseFloat(order.filled_avg_price || 0);
+              qty = parseFloat(order.filled_qty || 0);
+            } else {
+              // Drop partial_fills with zeroed root data to prevent duplicating cumulative fields
+              return;
+            }
           }
+
+          // Ultimate safety guard against ghost streaming updates
+          if (fillPrice === 0 || qty === 0) return;
 
           console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fillPrice}`);
 
@@ -109,7 +132,7 @@ export class StreamPipeline {
             pnlPct = (fillPrice - entry) / entry;
 
             if (pnl > 0) {
-                winStatus = "WIN";
+              winStatus = "WIN";
             } else if (pnl < 0) {
               winStatus = "LOSS";
             } else {
@@ -172,13 +195,63 @@ export class StreamPipeline {
     if (shouldExit) {
       console.log(`🚨 Exit condition met for ${bar.symbol}: ${reason}`);
       this.posManager.markPendingExit(bar.symbol);
-      await this.executor.closePosition(bar.symbol);
-      this.broadcaster.broadcastSignal({
-        symbol: bar.symbol,
-        action: "SELL",
-        confidence: 1,
-        reason,
-      });
+
+      // FIX 3: Isolated Try/Catch guarantees lock cleanup if API execution errors out
+      try {
+        const openOrders = await this.alpaca.getOrders({ status: "open" });
+        const matchingOrders = openOrders.filter(
+          (o: any) => o.symbol === bar.symbol,
+        );
+
+        if (matchingOrders.length > 0) {
+          console.log(
+            `🧹 Canceling ${matchingOrders.length} active orders for ${bar.symbol}...`,
+          );
+          await Promise.all(
+            matchingOrders.map((order: any) =>
+              this.alpaca.cancelOrder(order.id),
+            ),
+          );
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        const position = await this.alpaca.getPosition(bar.symbol);
+        const qtyToClose = Math.floor(Math.abs(parseFloat(position.qty)));
+
+        if (qtyToClose > 0) {
+          console.log(
+            `⚖️ Routing explicit manual liquidation for ${qtyToClose} whole shares of ${bar.symbol}`,
+          );
+          const side = position.side === "long" ? "sell" : "buy";
+
+          await this.alpaca.createOrder({
+            Symbol: bar.symbol,
+            qty: qtyToClose,
+            side: side,
+            type: "market",
+            time_in_force: "day",
+          });
+          this.broadcaster.broadcastSignal({
+            symbol: bar.symbol,
+            action: "SELL",
+            confidence: 1,
+            reason,
+          });
+        } else {
+          console.warn(
+            `⚠️ Available whole share quantity for ${bar.symbol} is 0. Releasing exit lock.`,
+          );
+          this.posManager.clearPendingExit(bar.symbol);
+        }
+      } catch (err) {
+        console.error(
+          `❌ Critical: Failed to execute closePosition for ${bar.symbol}. Releasing lock.`,
+          err,
+        );
+        this.posManager.clearPendingExit(bar.symbol);
+      }
+
       await this.posManager.syncPositions();
       return true;
     }
@@ -227,7 +300,7 @@ export class StreamPipeline {
       );
       return;
     }
-    
+
     if (
       signal.action === "BUY" &&
       this.posManager.canOpenPosition(bar.symbol)

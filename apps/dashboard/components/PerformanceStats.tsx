@@ -13,8 +13,12 @@ export default function PerformanceStats() {
   }, []);
 
   const stats = useMemo(() => calculatePerformance(history), [history]);
-
+  
   const cards = [
+    {
+      label: "Trades Per Day",
+      value: `${stats.avgTradesPerDay}`
+    },
     {
       label: "Win Rate",
       value: `${stats.winRate.toFixed(1)}%`,
