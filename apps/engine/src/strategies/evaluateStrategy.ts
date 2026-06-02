@@ -9,24 +9,29 @@ import {
 
 export type StrategyCriterion =
   | "isAlive"
-  | "isInSession"
-  | "isPremarket"
-  | "isInPriceRange"
-  | "isAboveTen"
-  | "isSurgingVolume"
-  | "isBounced"
-  | "isRsiBelow70"
   | "isAboveRollingVWAP"
+  | "isAboveTen"
   | "isBelowRollingVWAPWithDistance"
-  | "isRollingVolumeSurge"
-  | "isPdlSweptAndReclaimed"
+  | "isBounced"
+  | "isBullish"
   | "isBullishFollowthrough"
   | "isHighRVOL"
-  | "isWithinOpeningWindow"
   | "isHoldingVWAP"
-  | "isPremarketGapper"
+  | "isInPriceRange"
+  | "isInSession"
+  | "isLowFloat"
   | "isNotExtended"
-  | "isStrongBullCandle";
+  | "isPdlSweptAndReclaimed"
+  | "isPennyStock"
+  | "isPremarket"
+  | "isPremarketGapper"
+  | "isRollingVolumeSurge"
+  | "isRsiBelow70"
+  | "isStrongBullCandle"
+  | "isSurgingVolume"
+  | "isWithinOpeningWindow"
+  | "isWithinTightOpeningWindow"
+  ;
 
 export class EvaluateStrategy {
   private history: Bar[] = [];

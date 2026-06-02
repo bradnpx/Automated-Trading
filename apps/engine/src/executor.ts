@@ -48,7 +48,6 @@ export class Executor {
       for (const order of orders) {
         try {
           await this.alpaca.cancelOrder(order.id);
-          logTrade(order);
         } catch (err: any) {
           if (err?.response?.status === 422) {
             console.log(

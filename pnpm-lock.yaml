@@ -131,6 +131,9 @@ importers:
       '@polygon.io/client-js':
         specifier: ^8.2.0
         version: 8.2.0
+      axios:
+        specifier: ^1.16.1
+        version: 1.16.1
       dotenv:
         specifier: ^16.0.0
         version: 16.0.3

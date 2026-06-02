@@ -194,7 +194,17 @@ export class StreamPipeline {
 
     if (shouldExit) {
       console.log(`🚨 Exit condition met for ${bar.symbol}: ${reason}`);
-      this.posManager.markPendingExit(bar.symbol);
+      try {
+        this.posManager.markPendingExit(bar.symbol);
+
+        await this.executor.closePosition(bar.symbol);
+      } catch (executionError) {
+        console.error(
+          `❌ [PIPELINE] Execution failed for ${bar.symbol}. Releasing pending lock.`,
+        );
+
+        this.posManager.clearPendingExit(bar.symbol);
+      }
 
       // FIX 3: Isolated Try/Catch guarantees lock cleanup if API execution errors out
       try {
@@ -225,19 +235,31 @@ export class StreamPipeline {
           );
           const side = position.side === "long" ? "sell" : "buy";
 
-          await this.alpaca.createOrder({
-            Symbol: bar.symbol,
-            qty: qtyToClose,
-            side: side,
-            type: "market",
-            time_in_force: "day",
-          });
-          this.broadcaster.broadcastSignal({
-            symbol: bar.symbol,
-            action: "SELL",
-            confidence: 1,
-            reason,
-          });
+          try {
+            await this.alpaca.createOrder({
+              Symbol: bar.symbol,
+              qty: qtyToClose,
+              side: side,
+              type: "market",
+              time_in_force: "day",
+            });
+            this.broadcaster.broadcastSignal({
+              symbol: bar.symbol,
+              action: "SELL",
+              confidence: 1,
+              reason,
+            });
+          } catch (error: any) {
+            if (error.response) {
+              console.error("Alpaca Rejected request:", error.response.status);
+              console.error(
+                "Error Details:",
+                JSON.stringify(error.response.data),
+              );
+            } else {
+              console.error("Error:", error.message);
+            }
+          }
         } else {
           console.warn(
             `⚠️ Available whole share quantity for ${bar.symbol} is 0. Releasing exit lock.`,

@@ -10,56 +10,69 @@ export class PositionManager {
   private DEFAULT_TAKE_PROFIT_PCT = 0.04;
   private TRAILING_STOP_PCT = 0.015;
 
+  /**
+   * Tracks pending exits to prevent double-sell orders that fail
+   */
+  private pendingExits: Set<string> = new Set();
+
   constructor(alpaca: Alpaca) {
     this.alpaca = alpaca;
   }
 
   /**
-   * Syncs the local cache with the broker's actual holdings
+   * Syncs the local cache with the broker's actual holdings and clears stale locks
    */
   async syncPositions() {
-    const currentPositions = await this.alpaca.getPositions();
-    this.positions.clear();
-    currentPositions.forEach((pos: any) => {
-      this.positions.set(pos.symbol, pos);
-    });
+    try {
+      // 1. Fetch live open positions and active open orders simultaneously
+      const [currentPositions, openOrders] = await Promise.all([
+        this.alpaca.getPositions(),
+        this.alpaca.getOrders({ status: "open" }), // Fetches all active in-flight orders
+      ]);
 
-    for (const symbol of this.pendingExits) {
-      if (!this.positions.has(symbol)) {
-        this.pendingExits.delete(symbol)
+      // 2. Rebuild the live open position cache
+      this.positions.clear();
+      currentPositions.forEach((pos: any) => {
+        this.positions.set(pos.symbol, pos);
+      });
+
+      // 3. Collect all symbols that currently have active orders in-flight
+      const symbolsWithActiveOrders = new Set<string>(
+        openOrders.map((order: any) => order.symbol),
+      );
+
+      // 4. SMART SELF-HEALING REGISTRY CLEANUP:
+      for (const symbol of this.pendingExits) {
+        // Condition A: If we no longer hold the position, release the lock
+        const positionDefinitivelyClosed = !this.positions.has(symbol);
+
+        // Condition B: If we hold the position but there is NO open order in-flight at Alpaca,
+        // the previous exit attempt failed/errored out. Release the lock so we can retry!
+        const hasNoActiveOrdersAtBroker = !symbolsWithActiveOrders.has(symbol);
+
+        if (positionDefinitivelyClosed || hasNoActiveOrdersAtBroker) {
+          console.log(
+            `🔄 [STATE] Auto-cleared stuck pending exit for: ${symbol}`,
+          );
+          this.pendingExits.delete(symbol);
+        }
       }
+    } catch (err) {
+      console.error("❌ [STATE] Error during syncPositions collection:", err);
     }
-    // console.log(`✅ Synced ${this.positions.size} open positions.`);
   }
 
-  /**
-   * Get open positions
-   * @returns positions.values
-   */
   getPositions() {
-    // return this.positions.values();
     return [...this.positions.values()].map((pos) => ({ ...pos }));
   }
 
-  /**
-   * Check if we currently hold a specific ticker
-   */
   hasPosition(symbol: string): boolean {
     return this.positions.has(symbol);
   }
 
-  /**
-   * Checks if we are allowed to buy more of a specific ticker
-   */
   canOpenPosition(symbol: string): boolean {
-    // Basic Rule: No "double dipping" on the same ticker
     return !this.positions.has(symbol);
   }
-
-  /**
-   * Checks for pending exits to prevent double-sell orders that fail
-   */
-  private pendingExits: Set<string> = new Set();
 
   markPendingExit(symbol: string) {
     this.pendingExits.add(symbol);
@@ -78,8 +91,10 @@ export class PositionManager {
    */
   checkExitConditions(symbol: string, currentPrice: number) {
     if (this.pendingExits.has(symbol)) {
-      console.log(`checkExitConditions: ${symbol} already exists in PendingExits`)
-      return {shouldExit: false, reason: ""}
+      console.log(
+        `checkExitConditions: ${symbol} already exists in PendingExits`,
+      );
+      return { shouldExit: false, reason: "" };
     }
 
     const pos = this.positions.get(symbol);
@@ -94,16 +109,16 @@ export class PositionManager {
       console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
     }
 
-    const peak = this.highWaterMarks.get(symbol)!;
-    const dropFromPeak = (peak - currentPrice) / peak;
-    const totalPnl = (currentPrice - entryPrice) / entryPrice;
-
-    // Stop-loss and Take-profit checks
     const strategyId = SYMBOL_STRATEGY_MAP[symbol];
-    const customRisk = strategyId ? STRATEGY_RISK_MAP[strategyId]: null;
+    const customRisk = strategyId ? STRATEGY_RISK_MAP[strategyId] : null;
 
-    const activeStopLoss = customRisk ? customRisk.stopLossPct : this.DEFAULT_STOP_LOSS_PCT;
-    const activeTakeProfit = customRisk ? customRisk.takeProfitPct : this.DEFAULT_TAKE_PROFIT_PCT;
+    const activeStopLoss = customRisk
+      ? customRisk.stopLossPct
+      : this.DEFAULT_STOP_LOSS_PCT;
+    const activeTakeProfit = customRisk
+      ? customRisk.takeProfitPct
+      : this.DEFAULT_TAKE_PROFIT_PCT;
+
     // Stop-loss check
     if (pnlPct <= -activeStopLoss) {
       return {
@@ -113,7 +128,7 @@ export class PositionManager {
     }
 
     // Take-profit check
-    if (pnlPct >= activeStopLoss) {
+    if (pnlPct >= activeTakeProfit) {
       return {
         shouldExit: true,
         reason: `TAKE_PROFIT: +${(pnlPct * 100).toFixed(2)}%`,
@@ -123,9 +138,6 @@ export class PositionManager {
     return { shouldExit: false, reason: "" };
   }
 
-  /**
-   * Simple Risk Logic: Check if we should exit based on current price
-   */
   shouldEmergencyExit(bar: Bar): { exit: boolean; reason: string } {
     const pos = this.positions.get(bar.symbol);
     if (!pos) return { exit: false, reason: "" };
@@ -134,7 +146,6 @@ export class PositionManager {
     const currentPrice = bar.close;
     const plPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
 
-    // Hard-coded Stop Loss: 2%
     if (plPercent <= -2.0) {
       return {
         exit: true,
@@ -142,7 +153,6 @@ export class PositionManager {
       };
     }
 
-    // Hard-coded Take Profit: 5%
     if (plPercent >= 5.0) {
       return {
         exit: true,

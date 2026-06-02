@@ -1,4 +1,7 @@
-import { restClient } from "@polygon.io/client-js";
+import {
+  restClient,
+  GetStocksAggregatesTimespanEnum,
+} from "@polygon.io/client-js";
 
 // Initialize the Polygon REST Client using your environment key
 const polygonRest = restClient(process.env.POLYGON_API_KEY || "");
@@ -24,7 +27,7 @@ export async function getPremarketData(symbol: string) {
     const endTimestamp = Date.now();
 
     // Call Polygon's aggregate endpoint (Ticker, Multiplier, Timespan, From, To, Options)
-    const response = await polygonRest.stocks.aggregates(
+    const response = await polygonRest.getStocksAggregates(
       symbol,
       1,
       "minute",

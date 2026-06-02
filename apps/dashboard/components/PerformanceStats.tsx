@@ -16,7 +16,7 @@ export default function PerformanceStats() {
   
   const cards = [
     {
-      label: "Trades Per Day",
+      label: "Avg Trades Per Day",
       value: `${stats.avgTradesPerDay}`
     },
     {
@@ -31,13 +31,13 @@ export default function PerformanceStats() {
     },
     {
       label: "Avg Win / Avg Loss",
-      value: `$${stats.avgWin.toFixed(2)} / $${stats.avgLoss.toFixed(2)}`,
+      value: `$${stats.avgWin.toFixed(2)} / -$${stats.avgLoss.toFixed(2)}`,
       sub: "Trade Expectancy",
     },
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-4 mb-6">
+    <div className="grid grid-cols-4 gap-4 mb-6">
       {cards.map((c) => (
         <div
           key={c.label}

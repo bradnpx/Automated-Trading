@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { StrategyIdentifier } from "./strategies/StrategyFactory";
+import { Scanner, bootstrapMarketSession } from "./scanner";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
@@ -17,10 +18,8 @@ interface StrategyConfig {
 function parseStrategiesFromEnv(): StrategyConfig[] {
   const strategiesMap: Record<string, Partial<StrategyConfig>> = {};
 
-  // 1. Loop through all environment keys currently loaded
   console.log("Loading Strategies from .env");
   Object.keys(process.env).forEach((key) => {
-    // console.log(process.env, key)
     // This regex looks for patterns like STRATEGY_001_NAME, capturing the index and suffix
     const match = key.match(/^STRATEGY_(\d+)_(NAME|ID|WATCHLIST)$/);
 
@@ -35,7 +34,6 @@ function parseStrategiesFromEnv(): StrategyConfig[] {
         strategiesMap[index] = {};
       }
 
-      // 2. Assign properties and clean data formats
       if (property === "NAME") {
         strategiesMap[index].name = value;
       } else if (property === "ID") {
@@ -50,16 +48,15 @@ function parseStrategiesFromEnv(): StrategyConfig[] {
         ];
 
         if (!isNaN(tpRaw)) {
-          strategiesMap[index].takeProfitPct = tpRaw / 100
+          strategiesMap[index].takeProfitPct = tpRaw / 100;
         }
         if (!isNaN(slRaw)) {
-          strategiesMap[index].stopLossPct = slRaw / 100
+          strategiesMap[index].stopLossPct = slRaw / 100;
         }
       }
     }
   });
 
-  // 3. Convert the grouped index object into a clean array
   // Filter ensures partial/incomplete .env setups don't pass broken objects into your engine
   return Object.values(strategiesMap).filter(
     (strat): strat is StrategyConfig =>
@@ -67,6 +64,7 @@ function parseStrategiesFromEnv(): StrategyConfig[] {
   );
 }
 
+export const POLYGON_API = process.env.POLYGON_API_KEY;
 export const ACTIVE_STRATEGIES = parseStrategiesFromEnv();
 
 /**
@@ -78,16 +76,39 @@ export const GLOBAL_WATCHLIST: string[] = Array.from(
 );
 
 export const SYMBOL_STRATEGY_MAP: Record<string, StrategyIdentifier> = {};
-export const STRATEGY_RISK_MAP: Record<string, { takeProfitPct: number; stopLossPct: number }> = {};
+export const STRATEGY_RISK_MAP: Record<
+  string,
+  { takeProfitPct: number; stopLossPct: number }
+> = {};
 export const ALL_TRACKED_SYMBOLS: string[] = [];
+
+
+/**
+ * add Scanners to strategy watchlists
+ * 
+ */
+const lowFloatWatchlist = await bootstrapMarketSession();
+for (const ticker of lowFloatWatchlist) {
+  // SYMBOL_STRATEGY_MAP[ticker] = "dayTradeMicroScalp";
+  ACTIVE_STRATEGIES[3].watchlist.push(ticker)
+    // ACTIVE_STRATEGIES.find((strategy) => strategy.name === "dayTradeMicroScalp")
+  // ];
+}
+
+console.log("lowFloatWatchlist Scanner");
+console.log(lowFloatWatchlist, SYMBOL_STRATEGY_MAP, ACTIVE_STRATEGIES);
+
 
 for (const strategy of ACTIVE_STRATEGIES) {
   for (const symbol of strategy.watchlist) {
     SYMBOL_STRATEGY_MAP[symbol] = strategy.id as StrategyIdentifier;
-    if (strategy.takeProfitPct !== undefined && strategy.stopLossPct !== undefined) {
+    if (
+      strategy.takeProfitPct !== undefined &&
+      strategy.stopLossPct !== undefined
+    ) {
       STRATEGY_RISK_MAP[strategy.id] = {
         takeProfitPct: strategy.takeProfitPct,
-        stopLossPct: strategy.stopLossPct
+        stopLossPct: strategy.stopLossPct,
       };
     }
     if (!ALL_TRACKED_SYMBOLS.includes(symbol)) {
@@ -95,6 +116,8 @@ for (const strategy of ACTIVE_STRATEGIES) {
     }
   }
 }
+console.log(SYMBOL_STRATEGY_MAP);
+console.log(ALL_TRACKED_SYMBOLS);
 
 export const TRADING_CONFIG = {
   RISK_PER_TRADE: 0.05, // 5% of total equity
