@@ -1,14 +1,25 @@
-import {
-  restClient,
-  GetStocksAggregatesTimespanEnum,
-} from "@polygon.io/client-js";
+// src/functions/getPremarketData.ts
+import Alpaca from "@alpacahq/alpaca-trade-api";
 
-// Initialize the Polygon REST Client using your environment key
-const polygonRest = restClient(process.env.POLYGON_API_KEY || "");
+// Initialize a self-contained Alpaca instance from environment variables,
+// matching the pattern originally used for the Polygon REST client.
+const alpaca = new Alpaca();
 
+/**
+ * Fetches pre-market bar metrics using Alpaca's V2 Data API.
+ * Keeps the original single-argument signature to prevent upstream parameter shifting.
+ * * @param symbol - The stock ticker symbol (e.g., "XOS").
+ */
 export async function getPremarketData(symbol: string) {
+  // Defensive guard against missing or unpopulated tickers
+  if (!symbol) {
+    console.warn(
+      "⚠️ [PREMARKET] getPremarketData was invoked with an undefined or empty symbol.",
+    );
+    return null;
+  }
+
   try {
-    // 1. Force the date extraction to stay aligned with New York's calendar date
     const nyDateString = new Date().toLocaleDateString("en-US", {
       timeZone: "America/New_York",
       year: "numeric",
@@ -16,55 +27,57 @@ export async function getPremarketData(symbol: string) {
       day: "2-digit",
     });
 
-    // Convert MM/DD/YYYY to YYYY-MM-DD
     const [month, day, year] = nyDateString.split("/");
     const formattedDate = `${year}-${month}-${day}`;
 
-    // 4:00 AM EST/EDT offset string converted to numeric Unix milliseconds
-    const startTimestamp = new Date(
-      `${formattedDate}T04:00:00-04:00`,
-    ).getTime();
-    const endTimestamp = Date.now();
+    const startIso = new Date(`${formattedDate}T04:00:00-04:00`).toISOString();
+    const endIso = new Date().toISOString();
+    const barsResponse = alpaca.getBarsV2(symbol, {
+      start: startIso,
+      end: endIso,
+      timeframe: "1Min",
+      adjustment: "all",
+      feed: "iex", // "sip" for premium accounts
+    });
 
-    // Call Polygon's aggregate endpoint (Ticker, Multiplier, Timespan, From, To, Options)
-    const response = await polygonRest.getStocksAggregates(
-      symbol,
-      1,
-      "minute",
-      startTimestamp,
-      endTimestamp,
-      {
-        limit: 10,
-        order: "asc", // Ensures results start chronologically from 4:00 AM onward
-      },
-    );
+    const results = [];
+    for await (const bar of barsResponse) {
+      results.push(bar);
+    }
 
-    // Verify data structures were returned safely
-    if (!response.results || response.results.length === 0) {
+    if (results.length === 0) {
       console.log(
-        `No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern.`,
+        `⚠️ No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern via Alpaca IEX.`,
       );
       return null;
     }
 
-    // Grab the first element from the results array
-    const firstBar = response.results[0];
+    // Grab the first historical pre-market bar from the array
+    const firstBar = results[0];
 
-    // Mapping properties: 'o' is Open Price, 'v' is Volume
-    const premarketOpenPrice = firstBar.o ?? null;
-    const premarketVolume = firstBar.v ?? null;
-
-    if (!premarketOpenPrice) {
-      console.log(`No valid open price data found for ${symbol}.`);
-      return null;
-    }
-
+    // Includes both standard fields and Polygon lookalike shorthand variables (.o, .v)
+    // to protect getPremarketChange.ts function from throwing undefined property reads.
     return {
-      price: premarketOpenPrice,
-      volume: premarketVolume,
+      // Alpaca descriptive properties
+      open: firstBar.OpenPrice ?? null,
+      high: firstBar.HighPrice ?? null,
+      low: firstBar.LowPrice ?? null,
+      close: firstBar.ClosePrice ?? null,
+      volume: firstBar.Volume ?? null,
+      timestamp: new Date(firstBar.Timestamp).getTime(),
+
+      // Polygon compatibility mapping fallbacks (.o, .h, .l, .c, .v)
+      o: firstBar.OpenPrice ?? null,
+      h: firstBar.HighPrice ?? null,
+      l: firstBar.LowPrice ?? null,
+      c: firstBar.ClosePrice ?? null,
+      v: firstBar.Volume ?? null,
     };
-  } catch (error) {
-    console.error("Error computing pre-market metrics via Polygon:", error);
-    throw error;
+  } catch (err) {
+    console.error(
+      `❌ Error computing pre-market metrics for ${symbol} via Alpaca V2 Data:`,
+      err,
+    );
+    throw err;
   }
 }

@@ -95,9 +95,6 @@ for (const ticker of lowFloatWatchlist) {
   // ];
 }
 
-console.log("lowFloatWatchlist Scanner");
-console.log(lowFloatWatchlist, SYMBOL_STRATEGY_MAP, ACTIVE_STRATEGIES);
-
 
 for (const strategy of ACTIVE_STRATEGIES) {
   for (const symbol of strategy.watchlist) {
@@ -116,8 +113,6 @@ for (const strategy of ACTIVE_STRATEGIES) {
     }
   }
 }
-console.log(SYMBOL_STRATEGY_MAP);
-console.log(ALL_TRACKED_SYMBOLS);
 
 export const TRADING_CONFIG = {
   RISK_PER_TRADE: 0.05, // 5% of total equity

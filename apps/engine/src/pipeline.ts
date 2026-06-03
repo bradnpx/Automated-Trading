@@ -327,15 +327,20 @@ export class StreamPipeline {
       signal.action === "BUY" &&
       this.posManager.canOpenPosition(bar.symbol)
     ) {
-      const account = await this.alpaca.getAccount();
-      const qty =
-        (parseFloat(account.equity) * TRADING_CONFIG.RISK_PER_TRADE) /
-        bar.close;
-
-      if (qty > 0) {
-        this.broadcaster.broadcastSignal(signal);
-        await this.executor.placeBuyOrder(bar.symbol, qty);
-        await this.posManager.syncPositions();
+      try {
+        const equity = await this.posManager.getOrFetchEquity();
+        const qty = (equity * TRADING_CONFIG.RISK_PER_TRADE) / bar.close
+        if (qty > 0) {
+          this.broadcaster.broadcastSignal(signal);
+          await this.executor.placeBuyOrder(bar.symbol, qty);
+          await this.posManager.syncPositions().catch((err: any) =>
+          console.error("❌Background sync failed: ", err));
+        } else {
+          this.posManager.clearPendingBuy(bar.symbol)
+        }
+      } catch (err) {
+        console.error(`❌Execution Error for ${bar.symbol}: `, err)
+        this.posManager.clearPendingBuy(bar.symbol)
       }
     }
   }

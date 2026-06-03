@@ -3,17 +3,20 @@ import { Bar } from "@my-platform/types";
 import { STRATEGY_RISK_MAP, SYMBOL_STRATEGY_MAP } from "./config";
 
 export class PositionManager {
-  private alpaca: Alpaca;
-  private positions: Map<string, any> = new Map();
-  private highWaterMarks: Map<string, number> = new Map();
   private DEFAULT_STOP_LOSS_PCT = 0.02;
   private DEFAULT_TAKE_PROFIT_PCT = 0.04;
   private TRAILING_STOP_PCT = 0.015;
 
-  /**
-   * Tracks pending exits to prevent double-sell orders that fail
-   */
+  private alpaca: Alpaca;
+
+  private positions: Map<string, any> = new Map();
+  private highWaterMarks: Map<string, number> = new Map();
+
   private pendingExits: Set<string> = new Set();
+  private pendingBuys: Set<string> = new Set();
+  private cachedEquity: number | null = null;
+  private equityCacheTime: number = 0;
+  private readonly EQUITY_CACHE_TTL = 30000;
 
   constructor(alpaca: Alpaca) {
     this.alpaca = alpaca;
@@ -41,22 +44,30 @@ export class PositionManager {
         openOrders.map((order: any) => order.symbol),
       );
 
-      // 4. SMART SELF-HEALING REGISTRY CLEANUP:
+      const openOrderSymbols = new Set(openOrders.map((order: any) =>order.symbol))
+      for (const symbol of this.pendingBuys) {
+        if (!openOrderSymbols.has(symbol)) {
+          this.pendingBuys.delete(symbol)
+        }
+      }
+
       for (const symbol of this.pendingExits) {
-        // Condition A: If we no longer hold the position, release the lock
-        const positionDefinitivelyClosed = !this.positions.has(symbol);
-
-        // Condition B: If we hold the position but there is NO open order in-flight at Alpaca,
-        // the previous exit attempt failed/errored out. Release the lock so we can retry!
-        const hasNoActiveOrdersAtBroker = !symbolsWithActiveOrders.has(symbol);
-
-        if (positionDefinitivelyClosed || hasNoActiveOrdersAtBroker) {
-          console.log(
-            `🔄 [STATE] Auto-cleared stuck pending exit for: ${symbol}`,
-          );
+        if (!openOrderSymbols.has(symbol)) {
           this.pendingExits.delete(symbol);
         }
       }
+      
+      // for (const symbol of this.pendingExits) {
+      //   const positionDefinitivelyClosed = !this.positions.has(symbol);
+      //   const hasNoActiveOrdersAtBroker = !symbolsWithActiveOrders.has(symbol);
+
+      //   if (positionDefinitivelyClosed || hasNoActiveOrdersAtBroker) {
+      //     console.log(
+      //       `🔄 [STATE] Auto-cleared stuck pending exit for: ${symbol}`,
+      //     );
+      //     this.pendingExits.delete(symbol);
+      //   }
+      // }
     } catch (err) {
       console.error("❌ [STATE] Error during syncPositions collection:", err);
     }
@@ -71,7 +82,15 @@ export class PositionManager {
   }
 
   canOpenPosition(symbol: string): boolean {
-    return !this.positions.has(symbol);
+    return !this.pendingBuys.has(symbol) && !this.positions.has(symbol);
+  }
+
+  setPendingBuy(symbol: string) {
+    this.pendingBuys.add(symbol);
+  }
+
+  clearPendingBuy(symbol: string) {
+    this.pendingBuys.delete(symbol);
   }
 
   markPendingExit(symbol: string) {
@@ -84,6 +103,30 @@ export class PositionManager {
 
   clearPendingExit(symbol: string) {
     this.pendingExits.delete(symbol);
+  }
+
+  /**
+   * Equity caching - retrieves account equity via memory so we don't have to query the API
+   */
+  async getOrFetchEquity(): Promise<number> {
+    const now = Date.now();
+    if (
+      this.cachedEquity !== null &&
+      now - this.equityCacheTime < this.EQUITY_CACHE_TTL
+    ) {
+      return this.cachedEquity;
+    }
+
+    try {
+      const account = await this.alpaca.getAccount();
+      this.cachedEquity = parseFloat(account.equity);
+      this.equityCacheTime = now;
+      return this.cachedEquity;
+    } catch (err) {
+      console.log("❌[POS] Failed to fetch account equity: ", err);
+      if (this.cachedEquity !== null) return this.cachedEquity;
+      throw err;
+    }
   }
 
   /**
