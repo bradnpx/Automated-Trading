@@ -63,6 +63,16 @@ export function startApiService({
       return res.status(400).json({ error: "Symbol is required" });
     }
 
+    // Respect the pending-exit lock so a manual close cannot race with an
+    // automated exit that is already in-flight for the same symbol.
+    if (posManager.hasPendingExit(symbol)) {
+      return res
+        .status(409)
+        .json({ error: `Close already in progress for ${symbol}` });
+    }
+
+    posManager.markPendingExit(symbol);
+
     try {
       await executor.closePosition(symbol);
 
@@ -74,9 +84,12 @@ export function startApiService({
       });
 
       console.log(`🔴 Manually closed position: ${symbol}`);
+      // Lock is cleared by onOrderUpdate on fill confirmation.
       await posManager.syncPositions();
       res.status(200).json({ message: `Position closed: ${symbol}` });
     } catch (err) {
+      // Release the lock so the position can be retried.
+      posManager.clearPendingExit(symbol);
       console.error(`❌ Failed to close ${symbol}:`, err);
       res.status(500).json({ error: `Failed to close position: ${symbol}` });
     }

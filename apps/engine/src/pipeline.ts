@@ -25,7 +25,7 @@ export class StreamPipeline {
   ) {}
 
   public initialize() {
-    // 1. Idempotent guard protects shared alpaca instances from stacking events
+    // Idempotent guard protects shared alpaca instances from stacking events
     if (StreamPipeline.isGlobalInitialized) {
       console.log(
         "⚠️ StreamPipeline.initialize() bypassed: Listeners are already configured.",
@@ -48,7 +48,6 @@ export class StreamPipeline {
     marketStream.onStockBar(async (barData: any) => {
       try {
         const bar = this.parseBar(barData);
-        // console.log(`🍆 onstockbar ${bar.symbol}`);
 
         // A. Process exits instantly before evaluating new setups
         if (await this.handleExits(bar)) return;
@@ -86,13 +85,15 @@ export class StreamPipeline {
       try {
         const { event, order, price, fillQty } = data;
 
+        // Clear the pending exit lock as soon as the broker confirms the order
+        // is no longer active — whether it filled, was canceled, rejected, or expired.
         if (
           event === "canceled" ||
           event === "rejected" ||
           event === "expired"
         ) {
           console.warn(
-            `🔓 Order update [${event}] received for ${order.symbol}. Releasing pending exit lock.`,
+            `🔓 Order [${event}] for ${order.symbol}. Releasing pending exit lock.`,
           );
           this.posManager.clearPendingExit(order.symbol);
           await this.posManager.syncPositions();
@@ -100,28 +101,32 @@ export class StreamPipeline {
           return;
         }
 
-        // Only process and broadcast on official fill checkpoints
         if (event === "fill" || event === "partial_fill") {
           let fillPrice = parseFloat(price || 0);
           let qty = parseFloat(fillQty || 0);
 
-          // Fallback guard: If root variables are empty, fall back onto cumulative aggregates ONLY if it's the final fill checkpoint
+          // Fallback: use cumulative fields only on the final fill event
           if (fillPrice === 0 || qty === 0) {
             if (event === "fill") {
               fillPrice = parseFloat(order.filled_avg_price || 0);
               qty = parseFloat(order.filled_qty || 0);
             } else {
-              // Drop partial_fills with zeroed root data to prevent duplicating cumulative fields
+              // Drop partial_fills with zeroed root data
               return;
             }
           }
 
-          // Ultimate safety guard against ghost streaming updates
+          // Guard against ghost streaming updates
           if (fillPrice === 0 || qty === 0) return;
 
           console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fillPrice}`);
 
-          // Compute absolute PnL relative to entry tracking states
+          // On a confirmed sell fill, the position is closed — clear the lock immediately.
+          if (order.side === "sell") {
+            this.posManager.clearPendingExit(order.symbol);
+          }
+
+          // Compute PnL relative to entry tracking state
           const pos = this.posManager
             .getPositions()
             .find((p: any) => p.symbol === order.symbol);
@@ -135,19 +140,14 @@ export class StreamPipeline {
             pnl = (fillPrice - entry) * qty;
             pnlPct = (fillPrice - entry) / entry;
 
-            if (pnl > 0) {
-              winStatus = "WIN";
-            } else if (pnl < 0) {
-              winStatus = "LOSS";
-            } else {
-              winStatus = "BREAKEVEN";
-            }
+            if (pnl > 0) winStatus = "WIN";
+            else if (pnl < 0) winStatus = "LOSS";
+            else winStatus = "BREAKEVEN";
           }
 
           const matchedStrategyId =
             SYMBOL_STRATEGY_MAP[order.symbol] || "UnknownStrategy";
 
-          // Persist metrics out to local analytics structures
           await logTrade({
             symbol: order.symbol,
             side: order.side.toUpperCase(),
@@ -160,7 +160,6 @@ export class StreamPipeline {
             win_status: winStatus,
           });
 
-          // Propagate fresh data maps up to the web dashboard UI
           await this.posManager.syncPositions();
           this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
         }
@@ -169,7 +168,6 @@ export class StreamPipeline {
       }
     });
 
-    // Spin up stream client listeners
     marketStream.connect();
     tradeStream.connect();
   }
@@ -187,6 +185,17 @@ export class StreamPipeline {
     });
   }
 
+  /**
+   * Checks whether the incoming bar's symbol has an open position that has
+   * breached its exit thresholds, and if so, fires a close order.
+   *
+   * Lock lifecycle:
+   *   markPendingExit()  — set before the close call so no other path can
+   *                        race in and fire a duplicate order.
+   *   clearPendingExit() — cleared immediately if the call throws, OR by
+   *                        onOrderUpdate when the broker confirms the fill /
+   *                        cancel. syncPositions() acts as a final fallback.
+   */
   private async handleExits(bar: any): Promise<boolean> {
     if (!this.posManager.hasPosition(bar.symbol)) return false;
 
@@ -195,97 +204,41 @@ export class StreamPipeline {
       bar.close,
     );
 
-    if (shouldExit) {
-      console.log(`🚨 Exit condition met for ${bar.symbol}: ${reason}`);
-      try {
-        this.posManager.markPendingExit(bar.symbol);
+    if (!shouldExit) return false;
 
-        await this.executor.closePosition(bar.symbol);
-      } catch (executionError) {
-        console.error(
-          `❌ [PIPELINE] Execution failed for ${bar.symbol}. Releasing pending lock.`,
-        );
+    console.log(`🚨 Exit condition met for ${bar.symbol}: ${reason}`);
 
-        this.posManager.clearPendingExit(bar.symbol);
-      }
+    // Acquire the lock before any async work so concurrent bar events for the
+    // same symbol cannot slip through while the close call is in-flight.
+    this.posManager.markPendingExit(bar.symbol);
 
-      // FIX 3: Isolated Try/Catch guarantees lock cleanup if API execution errors out
-      try {
-        const openOrders = await this.alpaca.getOrders({ status: "open" });
-        const matchingOrders = openOrders.filter(
-          (o: any) => o.symbol === bar.symbol,
-        );
+    try {
+      await this.executor.closePosition(bar.symbol);
 
-        if (matchingOrders.length > 0) {
-          console.log(
-            `🧹 Canceling ${matchingOrders.length} active orders for ${bar.symbol}...`,
-          );
-          await Promise.all(
-            matchingOrders.map((order: any) =>
-              this.alpaca.cancelOrder(order.id),
-            ),
-          );
-
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-
-        const position = await this.alpaca.getPosition(bar.symbol);
-        const qtyToClose = Math.floor(Math.abs(parseFloat(position.qty)));
-
-        if (qtyToClose > 0) {
-          console.log(
-            `⚖️ Routing explicit manual liquidation for ${qtyToClose} whole shares of ${bar.symbol}`,
-          );
-          const side = position.side === "long" ? "sell" : "buy";
-
-          try {
-            await this.alpaca.createOrder({
-              Symbol: bar.symbol,
-              qty: qtyToClose,
-              side: side,
-              type: "market",
-              time_in_force: "day",
-              extended_hours: true,
-            });
-            this.broadcaster.broadcastSignal({
-              symbol: bar.symbol,
-              action: "SELL",
-              confidence: 1,
-              reason,
-            });
-          } catch (error: any) {
-            if (error.response) {
-              console.error("Alpaca Rejected request:", error.response.status);
-              console.error(
-                "Error Details:",
-                JSON.stringify(error.response.data),
-              );
-            } else {
-              console.error("Error:", error.message);
-            }
-          }
-        } else {
-          console.warn(
-            `⚠️ Available whole share quantity for ${bar.symbol} is 0. Releasing exit lock.`,
-          );
-          this.posManager.clearPendingExit(bar.symbol);
-        }
-      } catch (err) {
-        console.error(
-          `❌ Critical: Failed to execute closePosition for ${bar.symbol}. Releasing lock.`,
-          err,
-        );
-        this.posManager.clearPendingExit(bar.symbol);
-      }
-
-      await this.posManager.syncPositions();
-      return true;
+      // Executor resolved — the order is submitted. The lock will be cleared
+      // by onOrderUpdate once the broker confirms the fill or cancellation.
+      // We do NOT clear it here so that any bar arriving before the fill
+      // confirmation is still blocked by the guard in checkExitConditions.
+      this.broadcaster.broadcastSignal({
+        symbol: bar.symbol,
+        action: "SELL",
+        confidence: 1,
+        reason,
+      });
+    } catch (executionError) {
+      // The close call itself failed (network error, Alpaca rejection, etc.).
+      // Release the lock immediately so the next bar can retry.
+      console.error(
+        `❌ [PIPELINE] closePosition failed for ${bar.symbol}. Releasing lock for retry.`,
+        executionError,
+      );
+      this.posManager.clearPendingExit(bar.symbol);
     }
-    return false;
+
+    return true;
   }
 
   private async handleScannerAndWarmup(bar: any) {
-    // console.log("handleScannerAndWarmup🥬");
     const { isHot, rvol } = this.scanner.processBar(
       bar.symbol,
       bar.volume,
@@ -312,7 +265,6 @@ export class StreamPipeline {
   }
 
   private async handleStrategyEntries(bar: any) {
-    // console.log("🐋 handleStrategyEntries");
     const strategy = this.strategies.get(bar.symbol);
     if (!strategy || this.engineState.isKilled) return;
 

@@ -8,12 +8,19 @@ export class PositionManager {
   private TRAILING_STOP_PCT = 0.015;
 
   private alpaca: Alpaca;
-
   private positions: Map<string, any> = new Map();
   private highWaterMarks: Map<string, number> = new Map();
 
+  /**
+   * Tracks symbols that have an exit order actively in-flight at the broker.
+   * A symbol is added here the moment closePosition() is called and removed
+   * as soon as the broker confirms the fill (via onOrderUpdate) or the call
+   * errors out. syncPositions() acts as a safety-net fallback only.
+   */
   private pendingExits: Set<string> = new Set();
   private pendingBuys: Set<string> = new Set();
+
+  // Equity cache — avoids hitting getAccount() on every BUY signal evaluation
   private cachedEquity: number | null = null;
   private equityCacheTime: number = 0;
   private readonly EQUITY_CACHE_TTL = 30000;
@@ -23,51 +30,46 @@ export class PositionManager {
   }
 
   /**
-   * Syncs the local cache with the broker's actual holdings and clears stale locks
+   * Syncs the local cache with the broker's actual holdings.
+   * Also acts as a fallback self-healer: if a symbol is in pendingExits
+   * but the position is already gone AND there are no open orders for it,
+   * the lock is stale and gets cleared here.
    */
   async syncPositions() {
     try {
-      // 1. Fetch live open positions and active open orders simultaneously
       const [currentPositions, openOrders] = await Promise.all([
         this.alpaca.getPositions(),
-        this.alpaca.getOrders({ status: "open" }), // Fetches all active in-flight orders
+        this.alpaca.getOrders({ status: "open" }),
       ]);
 
-      // 2. Rebuild the live open position cache
       this.positions.clear();
       currentPositions.forEach((pos: any) => {
         this.positions.set(pos.symbol, pos);
       });
 
-      // 3. Collect all symbols that currently have active orders in-flight
-      const symbolsWithActiveOrders = new Set<string>(
+      const openOrderSymbols = new Set<string>(
         openOrders.map((order: any) => order.symbol),
       );
 
-      const openOrderSymbols = new Set(openOrders.map((order: any) =>order.symbol))
+      // Clear stale pendingBuys where the order is no longer active
       for (const symbol of this.pendingBuys) {
         if (!openOrderSymbols.has(symbol)) {
-          this.pendingBuys.delete(symbol)
+          this.pendingBuys.delete(symbol);
         }
       }
 
+      // Fallback cleanup: clear any exit lock where the position is gone AND
+      // no order is in-flight. The primary clear happens immediately after the
+      // close call resolves or in onOrderUpdate, so this should rarely fire.
       for (const symbol of this.pendingExits) {
-        if (!openOrderSymbols.has(symbol)) {
+        const positionGone = !this.positions.has(symbol);
+        const noActiveOrder = !openOrderSymbols.has(symbol);
+
+        if (positionGone || noActiveOrder) {
+          console.log(`🔄 [STATE] Fallback-cleared stale pending exit for: ${symbol}`);
           this.pendingExits.delete(symbol);
         }
       }
-      
-      // for (const symbol of this.pendingExits) {
-      //   const positionDefinitivelyClosed = !this.positions.has(symbol);
-      //   const hasNoActiveOrdersAtBroker = !symbolsWithActiveOrders.has(symbol);
-
-      //   if (positionDefinitivelyClosed || hasNoActiveOrdersAtBroker) {
-      //     console.log(
-      //       `🔄 [STATE] Auto-cleared stuck pending exit for: ${symbol}`,
-      //     );
-      //     this.pendingExits.delete(symbol);
-      //   }
-      // }
     } catch (err) {
       console.error("❌ [STATE] Error during syncPositions collection:", err);
     }
@@ -79,6 +81,10 @@ export class PositionManager {
 
   hasPosition(symbol: string): boolean {
     return this.positions.has(symbol);
+  }
+
+  hasPendingExit(symbol: string): boolean {
+    return this.pendingExits.has(symbol);
   }
 
   canOpenPosition(symbol: string): boolean {
@@ -106,7 +112,9 @@ export class PositionManager {
   }
 
   /**
-   * Equity caching - retrieves account equity via memory so we don't have to query the API
+   * Returns cached account equity, fetching from the broker only when the
+   * cache is stale (TTL: 30s). Avoids a live getAccount() call on every
+   * BUY signal evaluation in the pipeline.
    */
   async getOrFetchEquity(): Promise<number> {
     const now = Date.now();
@@ -123,20 +131,19 @@ export class PositionManager {
       this.equityCacheTime = now;
       return this.cachedEquity;
     } catch (err) {
-      console.log("❌[POS] Failed to fetch account equity: ", err);
+      console.error("❌ [POS] Failed to fetch account equity:", err);
       if (this.cachedEquity !== null) return this.cachedEquity;
       throw err;
     }
   }
 
   /**
-   * Evaluate Stop-loss and Take-profit
+   * Evaluate Stop-loss and Take-profit thresholds.
+   * Returns shouldExit: false immediately if an exit is already in-flight,
+   * preventing duplicate close attempts from any caller.
    */
   checkExitConditions(symbol: string, currentPrice: number) {
     if (this.pendingExits.has(symbol)) {
-      console.log(
-        `checkExitConditions: ${symbol} already exists in PendingExits`,
-      );
       return { shouldExit: false, reason: "" };
     }
 
@@ -162,7 +169,6 @@ export class PositionManager {
       ? customRisk.takeProfitPct
       : this.DEFAULT_TAKE_PROFIT_PCT;
 
-    // Stop-loss check
     if (pnlPct <= -activeStopLoss) {
       return {
         shouldExit: true,
@@ -170,7 +176,6 @@ export class PositionManager {
       };
     }
 
-    // Take-profit check
     if (pnlPct >= activeTakeProfit) {
       return {
         shouldExit: true,
