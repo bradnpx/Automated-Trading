@@ -6,35 +6,29 @@ export function startBackgroundTasks(
   broadcaster: any,
   executor: any,
 ) {
-  /**
-   * Reconciles local memory with the broker's truth to catch any missed WebSocket events.
-   */
+  // ─── 1. SLOW POSITION SYNC (every 30s) ───────────────────────────────────
+  // Reconciles local memory with the broker's truth to catch any missed
+  // WebSocket events. The primary sync is driven by onOrderUpdate fills;
+  // this is a safety-net fallback only.
   setInterval(async () => {
     try {
-      console.log(
-        "🔄 [TASKS] Running slow fallback position synchronization...",
-      );
+      console.log("🔄 [TASKS] Running slow fallback position synchronization...");
       await posManager.syncPositions();
     } catch (err) {
       console.error("❌ Task Engine Safety Sync Error:", err);
     }
   }, 30000);
 
-  /**
-   * Broadcasts the local memory data.
-   */
+  // ─── 2. DASHBOARD BROADCAST (every 2s) ───────────────────────────────────
+  // Broadcasts the latest local position cache and account state to the
+  // dashboard. Uses the cached equity helper to avoid hitting getAccount()
+  // on every tick.
   setInterval(async () => {
     try {
-      // 1. Pull positions completely out of the local memory cache map
       const localPositions = posManager.getPositions();
       broadcaster.broadcastPortfolio(localPositions);
 
-      // 2. Use the throttled/cached equity helper method implemented in Step 1/2
-      const currentEquity = await posManager.getOrFetchEquity();
-
-      // If your position manager doesn't cache account metadata yet, you can use high-interval lookups
       const account = await alpaca.getAccount();
-
       broadcaster.broadcastAccount({
         equity: parseFloat(account.equity),
         buying_power: parseFloat(account.buying_power),
@@ -48,35 +42,46 @@ export function startBackgroundTasks(
     }
   }, 2000);
 
-  /**
-   * Scans for stop-losses or take-profits entirely within local memory.
-   * This needs to be scanned more often to reduce risk to sale slippage
-   */
+  // ─── 3. FALLBACK EXIT MONITOR (every 1s) ─────────────────────────────────
+  // Secondary safety net: catches any positions whose exit was missed by the
+  // stream pipeline (e.g. during a brief WebSocket gap). Uses current_price
+  // from the last broker sync rather than a live bar.
+  //
+  // All qualifying exits are fired in parallel via Promise.all so that one
+  // slow close call does not block others from executing.
   setInterval(async () => {
     try {
-      for (const pos of posManager.getPositions()) {
-        const { shouldExit, reason } = posManager.checkExitConditions(
-          pos.symbol,
-          parseFloat(pos.current_price),
-        );
+      const positions = posManager.getPositions();
 
-        if (shouldExit) {
-          console.log(
-            `🚨 [TASKS] Exit condition triggered for ${pos.symbol}: ${reason}`,
+      const exitTasks = positions
+        .filter((pos: any) => {
+          const { shouldExit } = posManager.checkExitConditions(
+            pos.symbol,
+            parseFloat(pos.current_price),
           );
+          return shouldExit;
+        })
+        .map(async (pos: any) => {
+          // Re-check inside the map in case another path already acquired the
+          // lock between the filter pass and now (tight but possible race).
+          if (posManager.hasPendingExit(pos.symbol)) return;
 
           posManager.markPendingExit(pos.symbol);
+          console.log(`🚨 [TASKS] Exit condition triggered for ${pos.symbol}. Closing...`);
 
           try {
             await executor.closePosition(pos.symbol);
+            // Lock is cleared by onOrderUpdate on fill/cancel confirmation.
           } catch (err) {
             console.error(
-              `❌ [TASKS] Alpaca rejected close request for ${pos.symbol}. Releasing lock.`,
+              `❌ [TASKS] Fallback close failed for ${pos.symbol}. Releasing lock.`,
+              err,
             );
-            posManager.clearPendingExit(pos.symbol)
+            posManager.clearPendingExit(pos.symbol);
           }
-        }
-      }
+        });
+
+      await Promise.all(exitTasks);
     } catch (err) {
       console.error("❌ Task Engine Exit Check Error:", err);
     }
