@@ -35,7 +35,7 @@ export class Broadcaster {
   }
 
   broadcastScannerAlert(symbol: string, rvol: number) {
-    this.io.emit("scanner alert", { symbol, rvol, timestamp: new Date() });
+    this.io.emit("scanner_alert", { symbol, rvol, timestamp: new Date() });
   }
 
   broadcastHealth(alpacaConnected: boolean) {

@@ -36,8 +36,10 @@ export const StatelessRules: Partial<
   isHighRVOL: ({ metrics }) => metrics.rvol >= 5,
   isInSession: () => getTradingSession() === "market",
   isInPriceRange: ({ bar }) => bar.close >= 2 && bar.close <= 20,
-  isLowFloat: async ({ bar, metrics }) =>
-    (await getPublicFreeFloat(bar.symbol)) === 25000000,
+  isLowFloat: async ({ bar, metrics }) => {
+    const float = await getPublicFreeFloat(bar.symbol)
+      return float !== null && float < 25000000
+  },
   isNotExtended: ({ bar, metrics }) =>
     (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.04,
   isPennyStock: ({bar}) => bar.close >= 1 && bar.close <= 10,
@@ -46,7 +48,7 @@ export const StatelessRules: Partial<
     const data = await getPremarket();
     return data ? data.percentageChange >= 5 : false;
   },
-  isRollingVolumeSurge: ({ metrics }) => metrics.rvol >= 2.0,
+  isRollingVolumeSurge: ({ metrics }) => metrics.rvol >= 4.0,
   isRsiBelow70: ({ metrics }) => metrics.rsi < 70,
   isStrongBullCandle: ({ bar }) => {
     const body = Math.abs(bar.close - bar.open);
@@ -86,7 +88,7 @@ export class PdlSweptAndReclaimedRule implements ICriterionRule {
       this.barsSinceSweep++;
     }
 
-    const isFirstTouch = this.barsSinceSweep > 20;
+    const isFirstTouch = this.barsSinceSweep <= 20;
     const isReclaimed = this.pendingSweep && bar.close > prevLow;
 
     return isFirstTouch && isReclaimed;

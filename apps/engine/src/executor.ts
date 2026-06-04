@@ -19,11 +19,12 @@ export class Executor {
         side: "buy",
         type: "market",
         time_in_force: "day",
+        extended_hours: true,
       });
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
-      logTrade({...order, filled_at: new Date()});
+      // logTrade({...order, filled_at: new Date()});
       return order;
     } catch (err) {
       console.error(`❌ [EXEC] Buy Order Failed for ${symbol}:`, err);
@@ -63,8 +64,37 @@ export class Executor {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
-      const response = await this.alpaca.closePosition(symbol);
-      console.log(`📉 [EXEC] POSITION CLOSED: ${symbol}`);
+      let position;
+      try {
+        position = await this.alpaca.getPosition(symbol);
+      } catch (err) {
+        if (err && err.response?.status === 404) {
+          console.log(`✅ [EXEC] No active position found for ${symbol}, nothing to close.`);
+          return
+        }
+        throw err
+      }
+
+      const qty = position.qty;
+      const latestBars = await this.alpaca.getLatestBars([symbol]);
+      const bar = latestBars.get(symbol)
+      if (!bar) {
+        throw new Error(`Unable to fetch real-time pricing data for ${symbol}`);
+      }
+
+      const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2))
+      const response = await this.alpaca.createOrder({
+        symbol,
+        qty,
+        side: "sell",
+        type: "limit",
+        limit_price: marketableLimitPrice,
+        time_in_force: "day",
+        extended_hours: true,
+      })
+
+      // const response = await this.alpaca.closePosition(symbol);
+      console.log(`📉 [EXEC] CLOSING POSITION: ${symbol}...`);
       return response;
     } catch (err: any) {
       if (err?.response?.status === 404) {

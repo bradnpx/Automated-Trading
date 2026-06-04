@@ -20,8 +20,7 @@ function parseStrategiesFromEnv(): StrategyConfig[] {
 
   console.log("Loading Strategies from .env");
   Object.keys(process.env).forEach((key) => {
-    // This regex looks for patterns like STRATEGY_001_NAME, capturing the index and suffix
-    const match = key.match(/^STRATEGY_(\d+)_(NAME|ID|WATCHLIST)$/);
+    const match = key.match(/^STRATEGY_(\d+)_(NAME|ID|WATCHLIST|PNL)$/);
 
     if (match) {
       const [, index, property] = match;
@@ -43,10 +42,9 @@ function parseStrategiesFromEnv(): StrategyConfig[] {
         strategiesMap[index].watchlist = value.split(",").map((s) => s.trim());
       } else if (property === "PNL") {
         const [tpRaw, slRaw] = [
-          Number(value.split("/")[0]),
           Number(value.split("/")[1]),
+          Number(value.split("/")[0]),
         ];
-
         if (!isNaN(tpRaw)) {
           strategiesMap[index].takeProfitPct = tpRaw / 100;
         }
@@ -95,7 +93,7 @@ for (const ticker of lowFloatWatchlist) {
   // ];
 }
 
-
+console.log(ACTIVE_STRATEGIES);
 for (const strategy of ACTIVE_STRATEGIES) {
   for (const symbol of strategy.watchlist) {
     SYMBOL_STRATEGY_MAP[symbol] = strategy.id as StrategyIdentifier;

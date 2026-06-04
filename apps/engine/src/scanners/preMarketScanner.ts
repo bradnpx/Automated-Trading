@@ -26,7 +26,6 @@ export async function runPreMarketScanner() {
   );
 
   try {
-    // 1. Query Alpaca's free market movers screener
     const alpacaUrl =
       "https://data.alpaca.markets/v1beta1/screener/stocks/movers";
     const response = await axios.get<AlpacaMoversResponse>(alpacaUrl, {
@@ -36,7 +35,7 @@ export async function runPreMarketScanner() {
         accept: "application/json",
       },
       params: {
-        top: 5, // Pulls the top 20 extreme gainers and losers
+        top: 20,
       },
     });
 
@@ -47,12 +46,11 @@ export async function runPreMarketScanner() {
 
     const marketGainers = response.data.gainers;
 
-    // 2. Filter pass: Price ($1 - $7) and momentum (Intraday Gain >= 10%)
     const immediateCandidates = marketGainers.filter((stock) => {
       const price = stock.price || 0;
       const percentChange = stock.percent_change || 0;
 
-      return price >= 1.0 && price <= 7.0 && percentChange >= 10.0;
+      return price >= 1.0 && price <= 10.0 && percentChange >= 10.0;
     });
 
     console.log(
@@ -60,19 +58,19 @@ export async function runPreMarketScanner() {
     );
     console.log(immediateCandidates)
 
-    // 3. Supply filtering pass: Query float metrics using your shared utility helper
     for (const candidate of immediateCandidates) {
       const ticker = candidate.symbol;
 
-      // Yield execution briefly (200ms) to safely respect Polygon free-tier rate limits (5 calls/min)
-      // If you hit a high amount of candidates, consider increasing this delay or tracking limit
+      // If you hit a high amount of candidates, consider increasing this delay
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Execute your internal free-tier helper function
+      /**
+       * Run post-scan criteria filters
+       * Currently just checks the float but can be expanded/made dynamic
+       */
       const freeFloat = await getPublicFreeFloat(ticker);
       console.log(ticker, freeFloat, "🙃")
-      // Target criteria: Low supply threshold (< 25M shares outstanding)
-      if (freeFloat !== null && freeFloat > 0) {
+      if (freeFloat !== null) {
         console.log(
           `✅ [ELITE CANDIDATE] ${ticker} | Float: ${(freeFloat / 1e6).toFixed(2)}M | Gain: +${candidate.percent_change.toFixed(1)}%`,
         );

@@ -71,17 +71,21 @@ export class StreamPipeline {
       }
     });
 
-    // --- TRADE EXECUTION REFORMS ---
+    /**
+     * Connect Trade Stream
+     */
     tradeStream.onConnect(() => {
       console.log("🤝 Trade WebSocket: Connected");
       tradeStream.subscribe(["trade_updates"]);
     });
 
+    /**
+     * Placing Orders
+     */
     tradeStream.onOrderUpdate(async (data: any) => {
       try {
         const { event, order, price, fillQty } = data;
 
-        // FIX 1: Explicitly clear locks if an exit order is rejected, canceled, or expires
         if (
           event === "canceled" ||
           event === "rejected" ||
@@ -140,7 +144,6 @@ export class StreamPipeline {
             }
           }
 
-          // FIX 2: Dynamic Strategy Name Determination (Resolves the global variable race condition)
           const matchedStrategyId =
             SYMBOL_STRATEGY_MAP[order.symbol] || "UnknownStrategy";
 
@@ -242,6 +245,7 @@ export class StreamPipeline {
               side: side,
               type: "market",
               time_in_force: "day",
+              extended_hours: true,
             });
             this.broadcaster.broadcastSignal({
               symbol: bar.symbol,
@@ -329,18 +333,21 @@ export class StreamPipeline {
     ) {
       try {
         const equity = await this.posManager.getOrFetchEquity();
-        const qty = (equity * TRADING_CONFIG.RISK_PER_TRADE) / bar.close
+        const qty = (equity * TRADING_CONFIG.RISK_PER_TRADE) / bar.close;
         if (qty > 0) {
           this.broadcaster.broadcastSignal(signal);
           await this.executor.placeBuyOrder(bar.symbol, qty);
-          await this.posManager.syncPositions().catch((err: any) =>
-          console.error("❌Background sync failed: ", err));
+          await this.posManager
+            .syncPositions()
+            .catch((err: any) =>
+              console.error("❌Background sync failed: ", err),
+            );
         } else {
-          this.posManager.clearPendingBuy(bar.symbol)
+          this.posManager.clearPendingBuy(bar.symbol);
         }
       } catch (err) {
-        console.error(`❌Execution Error for ${bar.symbol}: `, err)
-        this.posManager.clearPendingBuy(bar.symbol)
+        console.error(`❌Execution Error for ${bar.symbol}: `, err);
+        this.posManager.clearPendingBuy(bar.symbol);
       }
     }
   }

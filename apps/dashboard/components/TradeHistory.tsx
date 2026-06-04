@@ -43,57 +43,53 @@ export default function TradeHistory() {
   }
 
   return (
-    <div className="">
+    <>
       <div className="p-4 border-b border-slate-100 font-bold text-slate-100 text-sm">
         Trade History
       </div>
-      <div className="">
-        <table className="w-full text-[14px] text-left">
-          <thead className="text-slate-500 uppercase text-[12px] sticky top-0">
-            <tr>
-              <th className="px-4 py-2">Time</th>
-              <th className="px-4 py-2">Symbol</th>
-              <th className="px-4 py-2">Qty</th>
-              <th className="px-4 py-2">Side</th>
-              <th className="px-4 py-2">Price</th>
-              <th className="px-4 py-2">P&L</th>
-              <th className="px-4 py-2">Strategy</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((t, i) => (
-              <tr
-                key={i}
-                className="border-t border-slate-50 hover:bg-slate-50"
+
+      <table className="w-full text-[14px] text-left">
+        <thead className="text-slate-500 uppercase text-[12px] sticky top-0">
+          <tr>
+            <th className="px-4 py-2">Time</th>
+            <th className="px-4 py-2">Symbol</th>
+            <th className="px-4 py-2">Side</th>
+            <th className="px-4 py-2">Qty</th>
+            <th className="px-4 py-2">Price</th>
+            <th className="px-4 py-2">P&L</th>
+            <th className="px-4 py-2">Strategy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((t, i) => (
+            <tr key={i} className="border-t border-slate-50 hover:bg-slate-50">
+              <td className="px-4 py-2 text-slate-400">
+                {t.timestamp
+                  ? new Date(t.timestamp).toLocaleDateString() +
+                    " " +
+                    new Date(t.timestamp).toLocaleTimeString()
+                  : ""}
+              </td>
+              <td className="px-4 py-2 font-bold">{t.symbol}</td>
+              <td
+                className={`px-4 py-2 font-bold ${t.side === "BUY" ? "text-blue-600" : "text-orange-600"}`}
               >
-                <td className="px-4 py-2 text-slate-400">
-                  {
-                    t.timestamp ?
-                    new Date(t.timestamp).toLocaleDateString() + " " + new Date(t.timestamp).toLocaleTimeString()
-                    : ''
-                  }
-                </td>
-                <td className="px-4 py-2 font-bold">{t.symbol}</td>
-                <td
-                  className={`px-4 py-2 font-bold ${t.side === "BUY" ? "text-blue-600" : "text-orange-600"}`}
-                >
-                  {t.side}
-                </td>
-                <td className="px-4 py-2 font-mono">{t.qty ? t.qty : ""}</td>
-                <td className="px-4 py-2 font-mono">
-                  {t.price ? t.price : ""}
-                </td>
-                <td
-                  className={`px-4 py-2 font-mono font-bold ${t.pnl && t.pnl >= 0 ? "text-green-600" : "text-red-600"}`}
-                >
-                  {t.pnl ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "-"}
-                </td>
-                <td>{t.reason}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+                {t.side}
+              </td>
+              <td className="px-4 py-2 font-mono">{t.qty ? t.qty : ""}</td>
+              <td className="px-4 py-2 font-mono">{t.price ? t.price : ""}</td>
+              <td
+                className={`px-4 py-2 font-mono font-bold ${t.pnl && t.pnl >= 0 ? "text-green-600" : "text-red-600"}`}
+              >
+                {t.pnl
+                  ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} (${(t.pnl_pct * 100).toFixed(2)}%)`
+                  : "-"}
+              </td>
+              <td>{t.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
