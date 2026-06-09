@@ -2,10 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { StrategyIdentifier } from "./strategies/StrategyFactory";
-import { Scanner, bootstrapMarketSession } from "./scanner";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+import { bootstrapMarketSession } from "./scanner";
 
 interface StrategyConfig {
   id: string;
@@ -15,102 +12,105 @@ interface StrategyConfig {
   stopLossPct?: number;
 }
 
-function parseStrategiesFromEnv(): StrategyConfig[] {
-  const strategiesMap: Record<string, Partial<StrategyConfig>> = {};
-
-  console.log("Loading Strategies from .env");
-  Object.keys(process.env).forEach((key) => {
-    const match = key.match(/^STRATEGY_(\d+)_(NAME|ID|WATCHLIST|PNL)$/);
-
-    if (match) {
-      const [, index, property] = match;
-      const value = process.env[key];
-
-      if (!value) return;
-
-      // Initialize the placeholder object for this index group if it doesn't exist
-      if (!strategiesMap[index]) {
-        strategiesMap[index] = {};
-      }
-
-      if (property === "NAME") {
-        strategiesMap[index].name = value;
-      } else if (property === "ID") {
-        strategiesMap[index].id = value;
-      } else if (property === "WATCHLIST") {
-        // Split comma-separated tickers and trim potential whitespace
-        strategiesMap[index].watchlist = value.split(",").map((s) => s.trim());
-      } else if (property === "PNL") {
-        const [tpRaw, slRaw] = [
-          Number(value.split("/")[1]),
-          Number(value.split("/")[0]),
-        ];
-        if (!isNaN(tpRaw)) {
-          strategiesMap[index].takeProfitPct = tpRaw / 100;
-        }
-        if (!isNaN(slRaw)) {
-          strategiesMap[index].stopLossPct = slRaw / 100;
-        }
-      }
-    }
-  });
-
-  // Filter ensures partial/incomplete .env setups don't pass broken objects into your engine
-  return Object.values(strategiesMap).filter(
-    (strat): strat is StrategyConfig =>
-      !!strat.id && !!strat.name && Array.isArray(strat.watchlist),
-  );
+export interface MasterWatchlistItem {
+  symbol: string;
+  strategy: string;
+  takeProfitPct?: number;
+  stopLossPct?: number;
 }
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+
 export const POLYGON_API = process.env.POLYGON_API_KEY;
+
+
+function parseStrategiesFromEnv(): StrategyConfig[] {
+  try {
+    const raw = process.env.STRATEGIES;
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    // Type-guard filtering ensures runtime schema compliance
+    return parsed.filter(
+      (strat: any): strat is StrategyConfig =>
+        !!strat.id && !!strat.name && Array.isArray(strat.watchlist),
+    );
+  } catch (error) {
+    console.error("❌ Failed to parse strategies from env:", error);
+    return [];
+  }
+}
+
+export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
 export const ACTIVE_STRATEGIES = parseStrategiesFromEnv();
 
-/**
- * Dynamically generates a flat list of all active tickers to subscribe to.
- * Result: ['SPX', 'SPXL', 'SPXS', 'SPY', 'AAPL', ...]
- */
-export const GLOBAL_WATCHLIST: string[] = Array.from(
-  new Set(ACTIVE_STRATEGIES.flatMap((strat) => strat.watchlist)),
-);
+for (const strategy of ACTIVE_STRATEGIES) {
+  for (const symbol of strategy.watchlist) {
+    MASTER_WATCHLIST.set(symbol, {
+      symbol,
+      strategy: strategy.id || strategy.name,
+      takeProfitPct: strategy.takeProfitPct,
+      stopLossPct: strategy.stopLossPct,
+    });
+  }
+}
 
-export const SYMBOL_STRATEGY_MAP: Record<string, StrategyIdentifier> = {};
+/**
+ * Feed dynamic scanner results into watchlist
+ */
+try {
+  const scannerSymbols = await bootstrapMarketSession();
+  for (const symbol of scannerSymbols) {
+    MASTER_WATCHLIST.set(symbol, {
+      symbol,
+      strategy: "dayTradeMicroScalp",
+      stopLossPct: 2,
+      takeProfitPct: 2.2,
+    });
+  }
+} catch (error) {
+  console.error("❌ Failed to bootstrap market session scanner symbols:", error);
+}
+
+
+// ==========================================
+// 4. BACKWARD COMPATIBILITY LAYER
+// ==========================================
+// Dynamically derived lists guarantee data integrity across all app interfaces.
+
+/**
+ * Flattened array tracking every active symbol across all rules engines.
+ * Use this directly for your WebSocket data stream subscriptions.
+ */
+export const ALL_TRACKED_SYMBOLS: string[] = Array.from(MASTER_WATCHLIST.keys());
+export const GLOBAL_WATCHLIST: string[] = ALL_TRACKED_SYMBOLS;
+
+/**
+ * Alias targeting modules that expect SYMBOL_STRATEGY_MAP dictionary format.
+ */
+export const SYMBOL_STRATEGY_MAP = MASTER_WATCHLIST;
+
+/**
+ * Derived lookup dictionary mapping individual symbols to risk boundaries.
+ */
 export const STRATEGY_RISK_MAP: Record<
   string,
   { takeProfitPct: number; stopLossPct: number }
 > = {};
-export const ALL_TRACKED_SYMBOLS: string[] = [];
 
-
-/**
- * add Scanners to strategy watchlists
- * 
- */
-const lowFloatWatchlist = await bootstrapMarketSession();
-for (const ticker of lowFloatWatchlist) {
-  // SYMBOL_STRATEGY_MAP[ticker] = "dayTradeMicroScalp";
-  ACTIVE_STRATEGIES[3].watchlist.push(ticker)
-    // ACTIVE_STRATEGIES.find((strategy) => strategy.name === "dayTradeMicroScalp")
-  // ];
-}
-
-console.log(ACTIVE_STRATEGIES);
-for (const strategy of ACTIVE_STRATEGIES) {
-  for (const symbol of strategy.watchlist) {
-    SYMBOL_STRATEGY_MAP[symbol] = strategy.id as StrategyIdentifier;
-    if (
-      strategy.takeProfitPct !== undefined &&
-      strategy.stopLossPct !== undefined
-    ) {
-      STRATEGY_RISK_MAP[strategy.id] = {
-        takeProfitPct: strategy.takeProfitPct,
-        stopLossPct: strategy.stopLossPct,
-      };
-    }
-    if (!ALL_TRACKED_SYMBOLS.includes(symbol)) {
-      ALL_TRACKED_SYMBOLS.push(symbol);
-    }
+for (const [symbol, item] of MASTER_WATCHLIST.entries()) {
+  if (item.takeProfitPct !== undefined && item.stopLossPct !== undefined) {
+    STRATEGY_RISK_MAP[symbol] = {
+      takeProfitPct: item.takeProfitPct,
+      stopLossPct: item.stopLossPct,
+    };
   }
 }
+
+console.log(`🚀 Master Watchlist initialized with ${MASTER_WATCHLIST.size} synchronized tickers.`);
 
 export const TRADING_CONFIG = {
   RISK_PER_TRADE: 0.05, // 5% of total equity

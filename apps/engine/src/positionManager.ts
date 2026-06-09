@@ -1,6 +1,6 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { Bar } from "@my-platform/types";
-import { STRATEGY_RISK_MAP, SYMBOL_STRATEGY_MAP } from "./config";
+import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config";
 
 export class PositionManager {
   private DEFAULT_STOP_LOSS_PCT = 0.02;
@@ -159,24 +159,26 @@ export class PositionManager {
       console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
     }
 
-    const strategyId = SYMBOL_STRATEGY_MAP[symbol];
-    const customRisk = strategyId ? STRATEGY_RISK_MAP[strategyId] : null;
+    const strategy = MASTER_WATCHLIST.get(symbol)
+    const customRisk = strategy
+      ? {
+          takeProfitPct:
+            MASTER_WATCHLIST.get(symbol).takeProfitPct ||
+            this.DEFAULT_TAKE_PROFIT_PCT,
+          stopLossPct:
+            -MASTER_WATCHLIST.get(symbol).stopLossPct ||
+            -this.DEFAULT_STOP_LOSS_PCT,
+        }
+      : { takeProfitPct: 4, stopLossPct: -2 };
 
-    const activeStopLoss = customRisk
-      ? customRisk.stopLossPct
-      : this.DEFAULT_STOP_LOSS_PCT;
-    const activeTakeProfit = customRisk
-      ? customRisk.takeProfitPct
-      : this.DEFAULT_TAKE_PROFIT_PCT;
-
-    if (pnlPct <= -activeStopLoss) {
+    if (pnlPct <= customRisk.stopLossPct) {
       return {
         shouldExit: true,
         reason: `STOP_LOSS: ${(pnlPct * 100).toFixed(2)}%`,
       };
     }
 
-    if (pnlPct >= activeTakeProfit) {
+    if (pnlPct >= customRisk.takeProfitPct) {
       return {
         shouldExit: true,
         reason: `TAKE_PROFIT: +${(pnlPct * 100).toFixed(2)}%`,

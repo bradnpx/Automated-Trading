@@ -1,8 +1,8 @@
 import { BarSchema } from "@my-platform/types";
 import {
   TRADING_CONFIG,
-  SYMBOL_STRATEGY_MAP,
   ALL_TRACKED_SYMBOLS,
+  MASTER_WATCHLIST,
 } from "../config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
 
@@ -78,9 +78,9 @@ export async function warmupStrategies(
   alpaca: any,
   strategies: Map<string, any>,
 ): Promise<void> {
-  for (const symbol of ALL_TRACKED_SYMBOLS) {
-    // 1. DYNAMIC STEP: Identify which strategy template belongs to this symbol
-    const targetStrategyKey = SYMBOL_STRATEGY_MAP[symbol];
+  // for (const symbol of ALL_TRACKED_SYMBOLS) {
+  for (const [symbol, props] of MASTER_WATCHLIST) {
+    const targetStrategyKey = props.strategy;
 
     if (!targetStrategyKey) {
       console.warn(

@@ -1,5 +1,6 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { logTrade } from "./logger";
+import getTradingSession from "./functions/getTradingSession";
 
 export class Executor {
   private alpaca: Alpaca;
@@ -12,6 +13,8 @@ export class Executor {
    * Places a market order to enter a position
    */
   async placeBuyOrder(symbol: string, qty: number, price: number) {
+    const session = getTradingSession();
+    const isExtendedHours = session !== "market";
     try {
       const order = await this.alpaca.createOrder({
         symbol,
@@ -19,7 +22,7 @@ export class Executor {
         side: "buy",
         type: "market",
         time_in_force: "day",
-        extended_hours: true,
+        extended_hours: isExtendedHours,
       });
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
@@ -69,20 +72,22 @@ export class Executor {
         position = await this.alpaca.getPosition(symbol);
       } catch (err) {
         if (err && err.response?.status === 404) {
-          console.log(`✅ [EXEC] No active position found for ${symbol}, nothing to close.`);
-          return
+          console.log(
+            `✅ [EXEC] No active position found for ${symbol}, nothing to close.`,
+          );
+          return;
         }
-        throw err
+        throw err;
       }
 
       const qty = position.qty;
       const latestBars = await this.alpaca.getLatestBars([symbol]);
-      const bar = latestBars.get(symbol)
+      const bar = latestBars.get(symbol);
       if (!bar) {
         throw new Error(`Unable to fetch real-time pricing data for ${symbol}`);
       }
 
-      const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2))
+      const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2));
       const response = await this.alpaca.createOrder({
         symbol,
         qty,
@@ -91,7 +96,7 @@ export class Executor {
         limit_price: marketableLimitPrice,
         time_in_force: "day",
         extended_hours: true,
-      })
+      });
 
       // const response = await this.alpaca.closePosition(symbol);
       console.log(`📉 [EXEC] CLOSING POSITION: ${symbol}...`);

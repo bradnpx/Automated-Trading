@@ -2,12 +2,15 @@
 import { BarSchema } from "@my-platform/types";
 import {
   TRADING_CONFIG,
-  SYMBOL_STRATEGY_MAP,
   ALL_TRACKED_SYMBOLS,
+  MASTER_WATCHLIST,
 } from "./config.js";
 import { logTrade } from "./logger.js";
 import { getPreviousDayLow } from "./utils/market.js";
-import { StrategyFactory } from "./strategies/StrategyFactory.js";
+import {
+  StrategyFactory,
+  StrategyIdentifier,
+} from "./strategies/StrategyFactory.js";
 import { resolve } from "path";
 
 export class StreamPipeline {
@@ -145,8 +148,6 @@ export class StreamPipeline {
             else winStatus = "BREAKEVEN";
           }
 
-          const matchedStrategyId =
-            SYMBOL_STRATEGY_MAP[order.symbol] || "UnknownStrategy";
 
           await logTrade({
             symbol: order.symbol,
@@ -156,7 +157,11 @@ export class StreamPipeline {
             pnl: pnl,
             pnl_pct: pnlPct,
             timestamp: new Date().toISOString(),
-            reason: order.side === "sell" ? "Exit" : matchedStrategyId,
+            reason:
+              order.side === "sell"
+                ? "Exit"
+                : MASTER_WATCHLIST.get(order.symbol)?.strategy ||
+                  "UnknownStrategy",
             win_status: winStatus,
           });
 
@@ -248,14 +253,14 @@ export class StreamPipeline {
     if (isHot && !this.strategies.has(bar.symbol)) {
       this.broadcaster.broadcastScannerAlert(bar.symbol, rvol);
 
-      const targetStrategyKey = SYMBOL_STRATEGY_MAP[bar.symbol];
-      const strategyToCreate = targetStrategyKey;
-
-      console.log(
-        `🎯 Routing breakout ticker ${bar.symbol} to factory context: [${strategyToCreate}]`,
-      );
+      const strategyToCreate = MASTER_WATCHLIST.get(bar.symbol)
+        ?.strategy as StrategyIdentifier;
 
       if (strategyToCreate) {
+        console.log(
+          `🎯 Routing breakout ticker ${bar.symbol} to factory context: [${strategyToCreate}]`,
+        );
+
         const newStrategy = StrategyFactory.create(strategyToCreate);
         const prevLow = await getPreviousDayLow(this.alpaca, bar.symbol);
         newStrategy.hydrate([bar], prevLow);
