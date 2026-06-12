@@ -20,7 +20,8 @@ export interface MasterWatchlistItem {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+// dotenv.config({ path: path.resolve(__dirname, "@/.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 export const POLYGON_API = process.env.POLYGON_API_KEY;
 export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
