@@ -87,3 +87,12 @@ export interface WinRateReport {
   breakevens: number;
   netRealizedPnL: number;
 }
+
+export interface WatchlistStock {
+  name?: string;
+  symbol: string;
+  strategy: string;
+  currentPosition?: number;
+  takeProfitPct?: number;
+  stopLossPct?: number;
+}

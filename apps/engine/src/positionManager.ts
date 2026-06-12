@@ -1,6 +1,6 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { Bar } from "@my-platform/types";
-import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config";
+import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config/config";
 
 export class PositionManager {
   private DEFAULT_STOP_LOSS_PCT = 0.02;
@@ -66,7 +66,9 @@ export class PositionManager {
         const noActiveOrder = !openOrderSymbols.has(symbol);
 
         if (positionGone || noActiveOrder) {
-          console.log(`🔄 [STATE] Fallback-cleared stale pending exit for: ${symbol}`);
+          console.log(
+            `🔄 [STATE] Fallback-cleared stale pending exit for: ${symbol}`,
+          );
           this.pendingExits.delete(symbol);
         }
       }
@@ -159,7 +161,7 @@ export class PositionManager {
       console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
     }
 
-    const strategy = MASTER_WATCHLIST.get(symbol)
+    const strategy = MASTER_WATCHLIST.get(symbol);
     const customRisk = strategy
       ? {
           takeProfitPct:

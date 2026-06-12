@@ -1,5 +1,5 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
-import { logTrade } from "./logger";
+import { logTrade } from "./middleware/logger";
 import getTradingSession from "./functions/getTradingSession";
 
 export class Executor {

@@ -1,5 +1,5 @@
 import axios from "axios";
-import { POLYGON_API } from "../config.js";
+import { POLYGON_API } from "../config/config.js";
 import { getPublicFreeFloat } from "../functions/getFloat.js";
 
 interface AlpacaMover {
@@ -18,7 +18,7 @@ interface AlpacaMoversResponse {
  * then checks Polygon's basic tier to isolate low-supply targets.
  */
 export async function runPreMarketScanner() {
-// export async function runPreMarketScanner(): Promise<string[]> {
+  // export async function runPreMarketScanner(): Promise<string[]> {
   const eliteWatchlist: string[] = [];
 
   console.log(
@@ -56,7 +56,7 @@ export async function runPreMarketScanner() {
     console.log(
       `📊 [PRE-MARKET] Alpaca found ${immediateCandidates.length} hot low-priced gainers. Checking supply via Polygon...`,
     );
-    console.log(immediateCandidates)
+    // console.log(immediateCandidates)
 
     for (const candidate of immediateCandidates) {
       const ticker = candidate.symbol;
@@ -69,7 +69,7 @@ export async function runPreMarketScanner() {
        * Currently just checks the float but can be expanded/made dynamic
        */
       const freeFloat = await getPublicFreeFloat(ticker);
-      console.log(ticker, freeFloat, "🙃")
+      //   console.log(ticker, freeFloat, "🙃")
       if (freeFloat !== null) {
         console.log(
           `✅ [ELITE CANDIDATE] ${ticker} | Float: ${(freeFloat / 1e6).toFixed(2)}M | Gain: +${candidate.percent_change.toFixed(1)}%`,

@@ -8,18 +8,20 @@ import { fileURLToPath } from "url";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { Scanner } from "./scanner.js";
+import { MASTER_WATCHLIST, syncTrackingCaches } from "./config/config.js";
+import { Scanner, bootstrapMarketSession } from "./scanner.js";
 import { startApiService } from "./api.js";
 import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
+import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
 
-// 1. ENVIRONMENT LOAD
+// ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 async function main() {
-  // 2. INITIALIZATION LAYER
+  // INITIALIZATION LAYER
   const alpaca = new Alpaca();
   const posManager = new PositionManager(alpaca);
   const executor = new Executor(alpaca);
@@ -28,9 +30,30 @@ async function main() {
   const strategies = new Map<string, any>();
   const engineState = { isKilled: false };
 
-  // 3. BOOTSTRAP LIFECYCLE HOOKS
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
+
+  console.log("🔍[BOOTSTRAP] Executing primary gainer discovery sweep...");
+  try {
+    const initialScannerSymbols = await bootstrapMarketSession();
+    for (const symbol of initialScannerSymbols) {
+      if (!MASTER_WATCHLIST.has(symbol)) {
+        MASTER_WATCHLIST.set(symbol, {
+          symbol,
+          strategy: "dayTradeMicroScalp",
+          stopLossPct: 2,
+          takeProfitPct: 2.2,
+        });
+      }
+    }
+    syncTrackingCaches();
+  } catch (err) {
+    console.error(
+      "⚠️ Initial gainer sweep failed, falling back to manual env: ",
+      err,
+    );
+  }
+
   await warmupStrategies(alpaca, strategies);
 
   // 4. START INDEPENDENT SUBSYSTEMS
@@ -47,6 +70,15 @@ async function main() {
     engineState,
   );
   pipeline.initialize();
+
+  await executeDynamicScannerSweep(alpaca, strategies, pipeline);
+
+  const SCAN_INTERVAL_MS = 60 * 1000;
+  setInterval(async () => {
+    if (!engineState.isKilled) {
+      await executeDynamicScannerSweep(alpaca, strategies, pipeline);
+    }
+  }, SCAN_INTERVAL_MS);
 
   console.log("⚡ Automated Trading Application fully operational.");
 }

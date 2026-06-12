@@ -3,7 +3,7 @@ import {
   TRADING_CONFIG,
   ALL_TRACKED_SYMBOLS,
   MASTER_WATCHLIST,
-} from "../config.js";
+} from "../config/config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
 
 /**

@@ -3,7 +3,7 @@ import cors from "cors";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { getTradeHistory } from "./logger.js";
+import { getTradeHistory } from "./middleware/logger.js";
 
 interface ApiConfig {
   posManager: PositionManager;

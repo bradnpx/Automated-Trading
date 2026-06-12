@@ -1,5 +1,5 @@
 import axios from "axios";
-import { POLYGON_API } from "../config";
+import { POLYGON_API } from "../config/config";
 
 interface PolygonFloatResponse {
   status: string;
