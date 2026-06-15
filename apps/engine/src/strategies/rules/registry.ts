@@ -60,16 +60,30 @@ export const StatelessRules: Partial<
     return data ? data.premarketVolume >= 500 : false;
   },
   isWithinOpeningWindow: ({ bar }) => {
+    // Fix: derive Eastern hour/minute from the bar's timestamp using Intl so that
+    // DST is handled correctly. The previous UTC-4 hardcode was wrong during EST (winter).
     const date = new Date(bar.timestamp);
-    const nyHour = date.getUTCHours() - 4; // Eastern Standard Time conversion
-    const min = date.getUTCMinutes();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    }).formatToParts(date);
+    const nyHour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    const min = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
     return (nyHour === 9 && min >= 45) || (nyHour === 10 && min <= 30);
   },
   isWithinTightOpeningWindow: ({ bar }) => {
     const date = new Date(bar.timestamp);
-    const nyHour = date.getUTCHours() - 4; // Eastern Standard Time conversion
-    const min = date.getUTCMinutes();
-    return (nyHour === 9 && min >= 35) || (nyHour === 9 && min <= 55);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    }).formatToParts(date);
+    const nyHour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+    const min = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+    return nyHour === 9 && min >= 35 && min <= 55;
   },
 };
 

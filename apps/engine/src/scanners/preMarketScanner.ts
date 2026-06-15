@@ -13,12 +13,13 @@ interface AlpacaMoversResponse {
   losers: AlpacaMover[];
 }
 
+const LOW_FLOAT_THRESHOLD = 25_000_000;
+
 /**
  * Sweeps the stock market for top gainers using Alpaca's free screener endpoint,
  * then checks Polygon's basic tier to isolate low-supply targets.
  */
 export async function runPreMarketScanner() {
-  // export async function runPreMarketScanner(): Promise<string[]> {
   const eliteWatchlist: string[] = [];
 
   console.log(
@@ -56,7 +57,6 @@ export async function runPreMarketScanner() {
     console.log(
       `📊 [PRE-MARKET] Alpaca found ${immediateCandidates.length} hot low-priced gainers. Checking supply via Polygon...`,
     );
-    // console.log(immediateCandidates)
 
     for (const candidate of immediateCandidates) {
       const ticker = candidate.symbol;
@@ -64,17 +64,20 @@ export async function runPreMarketScanner() {
       // If you hit a high amount of candidates, consider increasing this delay
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      /**
-       * Run post-scan criteria filters
-       * Currently just checks the float but can be expanded/made dynamic
-       */
       const freeFloat = await getPublicFreeFloat(ticker);
-      //   console.log(ticker, freeFloat, "🙃")
-      if (freeFloat !== null) {
+
+      // Fix: enforce the low-float threshold rather than accepting any non-null value.
+      // Previously, any ticker with a resolvable float (including large-caps) was admitted,
+      // causing the strategy's isLowFloat criterion to always fail at evaluation time.
+      if (freeFloat !== null && freeFloat < LOW_FLOAT_THRESHOLD) {
         console.log(
           `✅ [ELITE CANDIDATE] ${ticker} | Float: ${(freeFloat / 1e6).toFixed(2)}M | Gain: +${candidate.percent_change.toFixed(1)}%`,
         );
         eliteWatchlist.push(ticker);
+      } else {
+        console.log(
+          `⛔ [REJECTED] ${ticker} | Float: ${freeFloat !== null ? (freeFloat / 1e6).toFixed(2) + "M" : "unavailable"} | Threshold: <${(LOW_FLOAT_THRESHOLD / 1e6).toFixed(0)}M`,
+        );
       }
     }
 

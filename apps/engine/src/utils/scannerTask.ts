@@ -2,6 +2,8 @@ import { bootstrapMarketSession } from "../scanner.js";
 import { MASTER_WATCHLIST, syncTrackingCaches } from "../config/config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
 
+const HYDRATION_MINUTES = 30;
+
 export async function executeDynamicScannerSweep(
   alpaca: any,
   strategies: Map<string, any>,
@@ -35,10 +37,55 @@ export async function executeDynamicScannerSweep(
         try {
           const strategyInstance = StrategyFactory.create("dayTradeMicroScalp");
 
-          const historicalBars = await alpaca.getLatestBars([symbol]);
+          // Fix: fetch the last HYDRATION_MINUTES of 1-minute bars instead of a single
+          // latest bar. With only 1 bar, RVOL is always ~1.0 (never >= 5) and the rolling
+          // VWAP is meaningless, so isHighRVOL and VWAP-based criteria always fail.
+          const now = new Date();
+          const start = new Date(now.getTime() - HYDRATION_MINUTES * 60 * 1000);
 
-          if (historicalBars && historicalBars.has(symbol)) {
-            strategyInstance.hydrate([historicalBars.get(symbol)]);
+          const barsIterable = alpaca.getBarsV2(symbol, {
+            start: start.toISOString(),
+            end: now.toISOString(),
+            timeframe: "1Min",
+            feed: "iex",
+          });
+
+          const historicalBars: any[] = [];
+          for await (const bar of barsIterable) {
+            historicalBars.push({
+              symbol,
+              open: bar.OpenPrice,
+              high: bar.HighPrice,
+              low: bar.LowPrice,
+              close: bar.ClosePrice,
+              volume: bar.Volume,
+              timestamp: bar.Timestamp,
+            });
+          }
+
+          if (historicalBars.length > 0) {
+            strategyInstance.hydrate(historicalBars);
+            console.log(
+              `📈[WARMUP] Hydrated ${symbol} with ${historicalBars.length} historical bars.`,
+            );
+          } else {
+            // Graceful fallback: use the latest single bar if no range data is available
+            const latestBarsMap = await alpaca.getLatestBars([symbol]);
+            if (latestBarsMap && latestBarsMap.has(symbol)) {
+              const b = latestBarsMap.get(symbol);
+              strategyInstance.hydrate([{
+                symbol,
+                open: b.OpenPrice,
+                high: b.HighPrice,
+                low: b.LowPrice,
+                close: b.ClosePrice,
+                volume: b.Volume,
+                timestamp: b.Timestamp,
+              }]);
+              console.warn(
+                `⚠️[WARMUP] No range bars found for ${symbol}; fell back to single latest bar.`,
+              );
+            }
           }
 
           strategies.set(symbol, strategyInstance);

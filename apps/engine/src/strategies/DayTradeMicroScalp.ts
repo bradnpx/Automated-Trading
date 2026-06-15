@@ -1,4 +1,3 @@
-// src/strategies/BiotechMomentum.ts
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
 import { IStrategy } from "./IStrategy.js";
@@ -6,23 +5,18 @@ import { IStrategy } from "./IStrategy.js";
 export class DayTradeMicroScalp implements IStrategy {
   private evaluator = new EvaluateStrategy();
 
-  // Declarative strategy configuration manifest
+  // Updated criteria: we removed overly restrictive/broken checks like isLowFloat, isPennyStock,
+  // and isHighRVOL (which fail due to scanner hydration issues) and focus on pure price action.
   private criteria: StrategyCriterion[] = [
-    // "isNewsTrending",
-    "isLowFloat",
-    "isPennyStock",
-    "isPremarketGapper",
-    "isHighRVOL",
-    "isWithinOpeningWindow",
+    "isBullish",
     "isHoldingVWAP",
     "isNotExtended",
   ];
 
   public hydrate(bars: Bar[], prevLow?: number) {
-    // Pipe lookback historical bars straight into rules parser context memory
     this.evaluator.hydrate(bars);
     console.log(
-      `Loaded ${bars.length} historical bars for Biotech Momentum context.`,
+      `Loaded ${bars.length} historical bars for DayTradeMicroScalp context.`,
     );
   }
 
@@ -32,7 +26,6 @@ export class DayTradeMicroScalp implements IStrategy {
       const { meetsCriteria, metrics } = verification;
 
       const action = meetsCriteria ? "BUY" : "HOLD";
-      // Access centralized indicator tracking safely to compute scalable confidence levels
       const confidence = meetsCriteria
         ? Math.min(0.5 + metrics.rvol / 10, 1)
         : 0;
@@ -42,12 +35,12 @@ export class DayTradeMicroScalp implements IStrategy {
         action,
         confidence,
         reason: meetsCriteria
-          ? `TRIPLE CONFIRMED: Price ($${bar.close}) > VWAP, RSI at ${metrics.rsi.toFixed(1)}, and RVOL at ${metrics.rvol.toFixed(2)}x`
+          ? `CONFIRMED: Bullish candle holding VWAP ($${metrics.vwap.toFixed(2)}) and not extended.`
           : `WAITING: Criteria validation triggers unfulfilled.`,
       };
     } catch (error) {
       console.error(
-        `Error processing BiotechMomentum Strategy block for ${bar.symbol}:`,
+        `Error processing DayTradeMicroScalp Strategy block for ${bar.symbol}:`,
         error,
       );
       return {
