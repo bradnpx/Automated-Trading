@@ -85,6 +85,49 @@ export const StatelessRules: Partial<
     const min = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
     return nyHour === 9 && min >= 35 && min <= 55;
   },
+  isDonchianBreakout: ({ bar, history }) => {
+    const period = 20;
+    if (history.length < period) return false;
+    const recentBars = history.slice(-period);
+    const upper = Math.max(...recentBars.map(b => b.high));
+    return bar.close > upper;
+  },
+  isDonchianBreakdown: ({ bar, history }) => {
+    const period = 20;
+    if (history.length < period) return false;
+    const recentBars = history.slice(-period);
+    const lower = Math.min(...recentBars.map(b => b.low));
+    return bar.close < lower;
+  },
+  isRsiBelowLower: ({ metrics }) => {
+    return metrics.rsi < 30.0;
+  },
+  isSmaCross: ({ history }) => {
+    const fastPeriod = 20;
+    const slowPeriod = 50;
+    if (history.length < slowPeriod) return false;
+    
+    const recentFast = history.slice(-fastPeriod);
+    const recentSlow = history.slice(-slowPeriod);
+    
+    const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
+    const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
+    
+    return fastMa > slowMa;
+  },
+  isSmaCrossDown: ({ history }) => {
+    const fastPeriod = 20;
+    const slowPeriod = 50;
+    if (history.length < slowPeriod) return false;
+    
+    const recentFast = history.slice(-fastPeriod);
+    const recentSlow = history.slice(-slowPeriod);
+    
+    const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
+    const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
+    
+    return fastMa < slowMa;
+  },
 };
 
 export class PdlSweptAndReclaimedRule implements ICriterionRule {

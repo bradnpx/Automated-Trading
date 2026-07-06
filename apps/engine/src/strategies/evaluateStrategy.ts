@@ -31,6 +31,11 @@ export type StrategyCriterion =
   | "isSurgingVolume"
   | "isWithinOpeningWindow"
   | "isWithinTightOpeningWindow"
+  | "isDonchianBreakout"
+  | "isDonchianBreakdown"
+  | "isRsiBelowLower"
+  | "isSmaCross"
+  | "isSmaCrossDown"
   ;
 
 export class EvaluateStrategy {
