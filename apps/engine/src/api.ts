@@ -1,15 +1,23 @@
-import express from "express";
+// src/api.ts
+// Express application factory.
+// Wires together middleware, domain routers, and the global error handler.
+// Business logic lives in modules/trades — this file is pure composition.
+
+import express, { Application } from "express";
 import cors from "cors";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { getTradeHistory } from "./middleware/logger.js";
+import { requestLogger } from "./middleware/logger.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { createTradesRouter, TradesService } from "./modules/trades/index.js";
+import type { EngineState } from "./modules/trades/trades.types.js";
 
 interface ApiConfig {
   posManager: PositionManager;
   executor: Executor;
   broadcaster: Broadcaster;
-  engineState: { isKilled: boolean };
+  engineState: EngineState;
 }
 
 export function startApiService({
@@ -17,85 +25,29 @@ export function startApiService({
   executor,
   broadcaster,
   engineState,
-}: ApiConfig) {
+}: ApiConfig): Application {
   const app = express();
+
+  // ─── Global Middleware ──────────────────────────────────────────────────────
   app.use(cors());
   app.use(express.json());
+  app.use(requestLogger);
 
-  // GET: Fetch Trade History
-  app.get("/history", async (req, res) => {
-    try {
-      const history = await getTradeHistory();
-      res.json(history.reverse());
-    } catch (err) {
-      res.status(500).json({ error: "Failed to fetch history" });
-    }
-  });
+  // ─── Domain Routers ─────────────────────────────────────────────────────────
+  const tradesService = new TradesService(
+    posManager,
+    executor,
+    broadcaster,
+    engineState,
+  );
+  app.use("/", createTradesRouter(tradesService));
 
-  // POST: Reset Engine Kill Switch
-  app.post("/reset", async (req, res) => {
-    engineState.isKilled = false;
-    broadcaster.broadcastStatus("ACTIVE");
-    await posManager.syncPositions();
+  // ─── Global Error Handler (must be last) ────────────────────────────────────
+  app.use(errorHandler);
 
-    console.log("♻️  RESET INITIATED: Restoring engine functionality...");
-    res.status(200).json({ message: "Engine Resumed" });
-  });
-
-  // POST: Emergency Panic Kill Switch
-  app.post("/panic", async (req, res) => {
-    engineState.isKilled = true;
-    broadcaster.broadcastStatus("KILLED");
-    const result = await executor.killEverything();
-
-    if (result.success) {
-      res.status(200).json({ message: "Engine Neutered Successfully" });
-    } else {
-      res.status(500).json({ error: "Panic failed partially" });
-    }
-  });
-
-  // POST: Manual Close Position
-  app.post("/close", async (req, res) => {
-    const { symbol } = req.body;
-
-    if (!symbol) {
-      return res.status(400).json({ error: "Symbol is required" });
-    }
-
-    // Respect the pending-exit lock so a manual close cannot race with an
-    // automated exit that is already in-flight for the same symbol.
-    if (posManager.hasPendingExit(symbol)) {
-      return res
-        .status(409)
-        .json({ error: `Close already in progress for ${symbol}` });
-    }
-
-    posManager.markPendingExit(symbol);
-
-    try {
-      await executor.closePosition(symbol);
-
-      broadcaster.broadcastSignal({
-        symbol,
-        action: "SELL",
-        confidence: 1,
-        reason: "Manual close from dashboard",
-      });
-
-      console.log(`🔴 Manually closed position: ${symbol}`);
-      // Lock is cleared by onOrderUpdate on fill confirmation.
-      await posManager.syncPositions();
-      res.status(200).json({ message: `Position closed: ${symbol}` });
-    } catch (err) {
-      // Release the lock so the position can be retried.
-      posManager.clearPendingExit(symbol);
-      console.error(`❌ Failed to close ${symbol}:`, err);
-      res.status(500).json({ error: `Failed to close position: ${symbol}` });
-    }
-  });
-
-  app.listen(4001, () => console.log("🚨 Kill Switch API live on port 4001"));
+  app.listen(4001, () =>
+    console.log("🚨 Kill Switch API live on port 4001"),
+  );
 
   return app;
 }

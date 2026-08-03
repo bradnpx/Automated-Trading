@@ -1,11 +1,22 @@
 // src/tasks.ts
+// Background task scheduler.
+// Runs three independent intervals:
+//   1. Slow position sync (safety net against missed WebSocket events)
+//   2. Dashboard broadcast (portfolio + account state every 2s)
+//   3. Fallback exit monitor (catches exits missed by the stream pipeline)
+
+import { PositionManager } from "./positionManager.js";
+import { Executor } from "./executor.js";
+import { Broadcaster } from "./broadcaster.js";
+import Alpaca from "@alpacahq/alpaca-trade-api";
+import { AccountPayload } from "@my-platform/types";
 
 export function startBackgroundTasks(
-  alpaca: any,
-  posManager: any,
-  broadcaster: any,
-  executor: any,
-) {
+  alpaca: Alpaca,
+  posManager: PositionManager,
+  broadcaster: Broadcaster,
+  executor: Executor,
+): void {
   // ─── 1. SLOW POSITION SYNC (every 30s) ───────────────────────────────────
   // Reconciles local memory with the broker's truth to catch any missed
   // WebSocket events. The primary sync is driven by onOrderUpdate fills;
@@ -17,7 +28,7 @@ export function startBackgroundTasks(
     } catch (err) {
       console.error("❌ Task Engine Safety Sync Error:", err);
     }
-  }, 30000);
+  }, 30_000);
 
   // ─── 2. DASHBOARD BROADCAST (every 2s) ───────────────────────────────────
   // Broadcasts the latest local position cache and account state to the
@@ -29,18 +40,19 @@ export function startBackgroundTasks(
       broadcaster.broadcastPortfolio(localPositions);
 
       const account = await alpaca.getAccount();
-      broadcaster.broadcastAccount({
+      const payload: AccountPayload = {
         equity: parseFloat(account.equity),
         buying_power: parseFloat(account.buying_power),
         cash: parseFloat(account.cash),
         day_pl: parseFloat(account.equity) - parseFloat(account.last_equity),
         day_pl_pct:
           parseFloat(account.equity) / parseFloat(account.last_equity) - 1,
-      });
+      };
+      broadcaster.broadcastAccount(payload);
     } catch (err) {
       console.error("❌ Task Engine Dashboard Broadcast Error:", err);
     }
-  }, 2000);
+  }, 2_000);
 
   // ─── 3. FALLBACK EXIT MONITOR (every 1s) ─────────────────────────────────
   // Secondary safety net: catches any positions whose exit was missed by the
@@ -54,14 +66,14 @@ export function startBackgroundTasks(
       const positions = posManager.getPositions();
 
       const exitTasks = positions
-        .filter((pos: any) => {
+        .filter((pos) => {
           const { shouldExit } = posManager.checkExitConditions(
             pos.symbol,
             parseFloat(pos.current_price),
           );
           return shouldExit;
         })
-        .map(async (pos: any) => {
+        .map(async (pos) => {
           // Re-check inside the map in case another path already acquired the
           // lock between the filter pass and now (tight but possible race).
           if (posManager.hasPendingExit(pos.symbol)) return;
@@ -85,5 +97,5 @@ export function startBackgroundTasks(
     } catch (err) {
       console.error("❌ Task Engine Exit Check Error:", err);
     }
-  }, 1000);
+  }, 1_000);
 }

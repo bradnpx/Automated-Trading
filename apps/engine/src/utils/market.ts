@@ -1,17 +1,38 @@
-import { BarSchema } from "@my-platform/types";
-import {
-  TRADING_CONFIG,
-  ALL_TRACKED_SYMBOLS,
-  MASTER_WATCHLIST,
-} from "../config/config.js";
+// utils/market.ts
+// Utility functions for account health checks, historical bar fetching,
+// and strategy warm-up. All `any` types replaced with strict interfaces.
+
+import Alpaca from "@alpacahq/alpaca-trade-api";
+import { BarSchema, Bar } from "@my-platform/types";
+import { MASTER_WATCHLIST } from "../config/config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
+import { IStrategy } from "../strategies/IStrategy.js";
+
+// ─── Raw bar shape returned by the Alpaca getBarsV2 generator ─────────────────
+interface RawAlpacaBar {
+  Timestamp?: string;
+  timestamp?: string;
+  OpenPrice?: number;
+  Open?: number;
+  open?: number;
+  HighPrice?: number;
+  High?: number;
+  high?: number;
+  LowPrice?: number;
+  Low?: number;
+  low?: number;
+  ClosePrice?: number;
+  Close?: number;
+  close?: number;
+  Volume?: number;
+  volume?: number;
+}
 
 /**
- * Converts the async generator returned by getBarsV2 into a plain array.
- * Useful for batch-processing historical bars, backbone for bar comparison.
+ * Drains an async generator of raw Alpaca bars into a plain array.
  */
-async function barsToArray(gen: AsyncIterable<any>): Promise<any[]> {
-  const result: any[] = [];
+async function barsToArray(gen: AsyncIterable<RawAlpacaBar>): Promise<RawAlpacaBar[]> {
+  const result: RawAlpacaBar[] = [];
   for await (const b of gen) {
     result.push(b);
   }
@@ -20,9 +41,9 @@ async function barsToArray(gen: AsyncIterable<any>): Promise<any[]> {
 
 /**
  * Checks the connectivity and trading status of the Alpaca brokerage account.
- * Kills the engine safely if any critical trade blocking is active.
+ * Exits the process if the account is blocked or unreachable.
  */
-export async function checkAccountHealth(alpaca: any): Promise<void> {
+export async function checkAccountHealth(alpaca: Alpaca): Promise<void> {
   console.log("--- 🚀 Initializing Trading Engine Health Check ---");
   try {
     const account = await alpaca.getAccount();
@@ -44,10 +65,10 @@ export async function checkAccountHealth(alpaca: any): Promise<void> {
 }
 
 /**
- * Fetches the previous trading day's low for a given symbol using free IEX data feed.
+ * Fetches the previous trading day's low for a given symbol using the IEX feed.
  */
 export async function getPreviousDayLow(
-  alpaca: any,
+  alpaca: Alpaca,
   symbol: string,
 ): Promise<number> {
   try {
@@ -61,7 +82,7 @@ export async function getPreviousDayLow(
     const bars = await barsToArray(gen);
     if (bars.length === 0) return 0;
 
-    const b = bars[bars.length - 1];
+    const b = bars[bars.length - 1]!;
     return b.LowPrice ?? b.Low ?? b.low ?? 0;
   } catch (error) {
     console.error(`❌ Error fetching previous day low for ${symbol}:`, error);
@@ -70,15 +91,14 @@ export async function getPreviousDayLow(
 }
 
 /**
- * Iterates through your core tracking watchlist, pulls historical lookback 1-min intervals,
- * parses them through Zod schemas, and pre-populates your active technical indicators.
- * Now completely dynamic across multiple strategy shapes via the StrategyFactory.
+ * Pre-warms all strategies in the master watchlist with historical 1-minute bars
+ * so that technical indicators (VWAP, RSI, RVOL) have meaningful values before
+ * the live stream begins.
  */
 export async function warmupStrategies(
-  alpaca: any,
-  strategies: Map<string, any>,
+  alpaca: Alpaca,
+  strategies: Map<string, IStrategy>,
 ): Promise<void> {
-  // for (const symbol of ALL_TRACKED_SYMBOLS) {
   for (const [symbol, props] of MASTER_WATCHLIST) {
     const targetStrategyKey = props.strategy;
 
@@ -90,23 +110,24 @@ export async function warmupStrategies(
     }
 
     console.log(
-      `🔥 Warming up strategy configuration [${targetStrategyKey}] for ${symbol}...`,
+      `🔥 Warming up strategy [${targetStrategyKey}] for ${symbol}...`,
     );
 
     try {
-      // Fetch last ~3 hours of 1-min bars for indicator warmup
+      // Fetch last ~200 minutes of 1-min bars for indicator warmup.
+      // The 16-minute end offset accounts for the IEX free-tier data delay.
       const gen = alpaca.getBarsV2(symbol, {
-        start: new Date(Date.now() - 1000 * 60 * 200).toISOString(), // ~3 hours ago
-        end: new Date(Date.now() - 1000 * 60 * 16).toISOString(), // 16 mins delay layout for free IEX tier
+        start: new Date(Date.now() - 1000 * 60 * 200).toISOString(),
+        end: new Date(Date.now() - 1000 * 60 * 16).toISOString(),
         timeframe: alpaca.newTimeframe(1, alpaca.timeframeUnit.MIN),
         feed: "iex",
       });
 
       const rawBars = await barsToArray(gen);
 
-      const historicalBars = rawBars.map((b) =>
+      const historicalBars: Bar[] = rawBars.map((b) =>
         BarSchema.parse({
-          symbol: symbol,
+          symbol,
           timestamp: b.Timestamp ?? b.timestamp,
           open: b.OpenPrice ?? b.Open ?? b.open,
           high: b.HighPrice ?? b.High ?? b.high,
@@ -116,24 +137,18 @@ export async function warmupStrategies(
         }),
       );
 
-      // Derive baseline support levels using the absolute lowest point in the warmup block
+      // Derive the previous day's low as a baseline support level for PDL strategies.
       const prevLow =
         historicalBars.length > 0
           ? Math.min(...historicalBars.map((b) => b.low))
           : 0;
 
-      // 2. DYNAMIC STEP: Instantiate the exact type of strategy class requested by the config matrix
       const strategy = StrategyFactory.create(targetStrategyKey);
-
-      // 3. SEAMLESS INTERFACE INVOCATION: Every strategy (BasicStrategy, PDLSweep, etc.)
-      // safely implements `.hydrate()`, so this single contract execution covers all strategy shapes!
       strategy.hydrate(historicalBars, prevLow);
-
-      // Save the freshly populated strategy instance into the shared memory registry map
       strategies.set(symbol, strategy);
 
       console.log(
-        `✅ Strategy [${targetStrategyKey}] for ${symbol} successfully warmed up with ${historicalBars.length} bars.`,
+        `✅ Strategy [${targetStrategyKey}] for ${symbol} warmed up with ${historicalBars.length} bars.`,
       );
     } catch (error) {
       console.error(

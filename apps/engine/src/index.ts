@@ -1,10 +1,12 @@
 // src/index.ts
-import Alpaca from "@alpacahq/alpaca-trade-api";
+// Application entry point.
+// Composes all subsystems and starts the trading engine.
+
 import path from "path";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 
-// Custom Engine Modules
+// Engine modules
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
@@ -15,24 +17,27 @@ import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
+import { createAlpacaClient } from "./services/alpaca.js";
+import type { IStrategy } from "./strategies/IStrategy.js";
 
-// ENVIRONMENT LOAD
+// Load environment variables before any module that reads process.env
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
-async function main() {
-  // INITIALIZATION LAYER
-  const alpaca = new Alpaca();
+async function main(): Promise<void> {
+  // ─── Initialization ────────────────────────────────────────────────────────
+  const alpaca = createAlpacaClient();
   const posManager = new PositionManager(alpaca);
   const executor = new Executor(alpaca);
   const broadcaster = new Broadcaster(4000);
   const scanner = new Scanner();
-  const strategies = new Map<string, any>();
+  const strategies = new Map<string, IStrategy>();
   const engineState = { isKilled: false };
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
 
+  // ─── Bootstrap market session ──────────────────────────────────────────────
   console.log("🔍[BOOTSTRAP] Executing primary gainer discovery sweep...");
   try {
     const initialScannerSymbols = await bootstrapMarketSession();
@@ -49,14 +54,14 @@ async function main() {
     syncTrackingCaches();
   } catch (err) {
     console.error(
-      "⚠️ Initial gainer sweep failed, falling back to manual env: ",
+      "⚠️ Initial gainer sweep failed, falling back to manual env:",
       err,
     );
   }
 
   await warmupStrategies(alpaca, strategies);
 
-  // 4. START INDEPENDENT SUBSYSTEMS
+  // ─── Start independent subsystems ─────────────────────────────────────────
   startApiService({ posManager, executor, broadcaster, engineState });
   startBackgroundTasks(alpaca, posManager, broadcaster, executor);
 
@@ -71,9 +76,10 @@ async function main() {
   );
   pipeline.initialize();
 
+  // ─── Recurring scanner sweep ───────────────────────────────────────────────
   await executeDynamicScannerSweep(alpaca, strategies, pipeline);
 
-  const SCAN_INTERVAL_MS = 60 * 1000;
+  const SCAN_INTERVAL_MS = 60 * 1_000;
   setInterval(async () => {
     if (!engineState.isKilled) {
       await executeDynamicScannerSweep(alpaca, strategies, pipeline);

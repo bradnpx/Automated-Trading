@@ -1,11 +1,26 @@
+// strategies/evaluateStrategy.ts
+// Core strategy evaluation engine.
+//
+// Performance optimizations applied in this refactor:
+//   1. Stateless rules are shared via a module-level singleton registry so
+//      they are allocated once per process rather than once per strategy
+//      instance. Stateful rules (e.g. PdlSweptAndReclaimedRule) are still
+//      instantiated per-EvaluateStrategy so their counters remain isolated.
+//   2. Incremental VWAP: instead of slicing and iterating the full history
+//      array on every tick, we maintain running sums that are updated in O(1)
+//      as bars are added and evicted from the rolling window.
+//   3. The premarket cache is typed (no more `any`).
+
 import { Bar } from "@my-platform/types";
 import { RSI } from "technicalindicators";
 import { getPremarketChange } from "../functions/getPremarketChange.js";
 import { ICriterionRule, RuleContext } from "./rules/types.js";
 import {
-  createRulesRegistry,
+  StatelessRules,
   PdlSweptAndReclaimedRule,
 } from "./rules/registry.js";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type StrategyCriterion =
   | "isAlive"
@@ -30,55 +45,134 @@ export type StrategyCriterion =
   | "isStrongBullCandle"
   | "isSurgingVolume"
   | "isWithinOpeningWindow"
-  | "isWithinTightOpeningWindow"
-  ;
+  | "isWithinTightOpeningWindow";
+
+interface PremarketData {
+  percentageChange: number;
+  premarketVolume: number;
+}
+
+interface EvaluationResult {
+  meetsCriteria: boolean;
+  report: Record<string, boolean>;
+  metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
+}
+
+// ─── Module-level singleton for stateless rules ───────────────────────────────
+// Stateless rules carry no per-symbol counters, so they can safely be shared
+// across all EvaluateStrategy instances. This avoids re-allocating the same
+// function references on every `new EvaluateStrategy()` call.
+const SHARED_STATELESS_REGISTRY = new Map<StrategyCriterion, ICriterionRule>();
+for (const [criterion, evalFn] of Object.entries(StatelessRules)) {
+  SHARED_STATELESS_REGISTRY.set(criterion as StrategyCriterion, {
+    evaluate: evalFn,
+  });
+}
+
+// ─── Incremental VWAP accumulator ────────────────────────────────────────────
+// Maintains a fixed-size rolling window of the last VWAP_WINDOW bars and
+// keeps running price*volume and volume sums so that each new bar is an O(1)
+// update instead of an O(n) slice+reduce.
+const VWAP_WINDOW = 20;
+
+class IncrementalVWAP {
+  private window: Bar[] = [];
+  private sumPV = 0; // Σ(price × volume)
+  private sumV = 0;  // Σ(volume)
+  private readonly type: "close" | "typical";
+
+  constructor(type: "close" | "typical") {
+    this.type = type;
+  }
+
+  private price(b: Bar): number {
+    return this.type === "typical" ? (b.high + b.low + b.close) / 3 : b.close;
+  }
+
+  push(bar: Bar): void {
+    const p = this.price(bar);
+    this.sumPV += p * bar.volume;
+    this.sumV += bar.volume;
+    this.window.push(bar);
+
+    if (this.window.length > VWAP_WINDOW) {
+      const evicted = this.window.shift()!;
+      const ep = this.price(evicted);
+      this.sumPV -= ep * evicted.volume;
+      this.sumV -= evicted.volume;
+    }
+  }
+
+  get value(): number {
+    return this.sumV === 0 ? 0 : this.sumPV / this.sumV;
+  }
+
+  reset(): void {
+    this.window = [];
+    this.sumPV = 0;
+    this.sumV = 0;
+  }
+}
+
+// ─── EvaluateStrategy ─────────────────────────────────────────────────────────
 
 export class EvaluateStrategy {
   private history: Bar[] = [];
-  private rulesRegistry: Map<StrategyCriterion, ICriterionRule>;
 
-  constructor() {
-    // Each instance maintains separate sandbox states for its internal rules
-    this.rulesRegistry = createRulesRegistry();
-  }
+  // Stateful rules are per-instance so their counters stay isolated per symbol.
+  private pdlRule = new PdlSweptAndReclaimedRule();
 
-  public hydrate(bars: Bar[]) {
-    this.history = [...bars];
-  }
+  // Incremental VWAP accumulators — updated once per bar, read in O(1).
+  private vwapClose = new IncrementalVWAP("close");
+  private vwapTypical = new IncrementalVWAP("typical");
 
-  public resetSweepState() {
-    for (const rule of this.rulesRegistry.values()) {
-      if (rule.reset) rule.reset();
+  /** Pre-load historical bars to warm up indicators before live trading. */
+  public hydrate(bars: Bar[]): void {
+    this.history = [];
+    this.vwapClose.reset();
+    this.vwapTypical.reset();
+
+    for (const bar of bars) {
+      this.history.push(bar);
+      this.vwapClose.push(bar);
+      this.vwapTypical.push(bar);
     }
+  }
+
+  /** Reset all stateful rule counters (e.g. after a confirmed signal fires). */
+  public resetSweepState(): void {
+    this.pdlRule.reset?.();
   }
 
   public async evaluate(
     bar: Bar,
     criteriaToTest: StrategyCriterion[],
-    prevLow: number = 0,
-  ): Promise<{
-    meetsCriteria: boolean;
-    report: Record<string, boolean>;
-    metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
-  }> {
+    prevLow = 0,
+  ): Promise<EvaluationResult> {
+    // Append bar to rolling history (capped at 200 bars)
     this.history.push(bar);
     if (this.history.length > 200) this.history.shift();
 
-    const report: Record<string, boolean> = {};
-    let premarketCache: any = null;
+    // Update incremental VWAP accumulators in O(1)
+    this.vwapClose.push(bar);
+    this.vwapTypical.push(bar);
 
-    const getPremarket = async () => {
-      if (!premarketCache)
+    // Typed premarket cache — fetched at most once per evaluate() call
+    let premarketCache: PremarketData | null = null;
+    const getPremarket = async (): Promise<PremarketData | null> => {
+      if (!premarketCache) {
         premarketCache = await getPremarketChange(bar.symbol);
+      }
       return premarketCache;
     };
 
-    // --- Dynamic Evaluation Execution Context with Lazy Metrics ---
-    // Metrics calculations are cached inside execution scope only if explicitly evaluated
+    // Lazy metric caches — computed at most once per evaluate() call
     let rsiCache: number | null = null;
     let rvolCache: number | null = null;
-    let vwapCloseCache: number | null = null;
-    let vwapTypicalCache: number | null = null;
+
+    // Capture VWAP values once so the getters are pure reads
+    const vwapCloseValue = this.vwapClose.value;
+    const vwapTypicalValue = this.vwapTypical.value;
 
     const context: RuleContext = {
       bar,
@@ -91,9 +185,7 @@ export class EvaluateStrategy {
           const prices = context.history.map((b) => b.close);
           const rsiValues = RSI.calculate({ values: prices, period: 14 });
           rsiCache =
-            rsiValues && rsiValues.length > 0
-              ? rsiValues[rsiValues.length - 1]
-              : 50;
+            rsiValues.length > 0 ? rsiValues[rsiValues.length - 1]! : 50;
           return rsiCache;
         },
         get rvol() {
@@ -107,37 +199,39 @@ export class EvaluateStrategy {
           rvolCache = avgVolume > 0 ? bar.volume / avgVolume : 1;
           return rvolCache;
         },
+        // VWAP values come from the incremental accumulators — no array work here
         get vwapClose() {
-          if (vwapCloseCache !== null) return vwapCloseCache;
-          vwapCloseCache = calculateRollingVWAP(context.history, "close");
-          return vwapCloseCache;
+          return vwapCloseValue;
         },
         get vwapTypical() {
-          if (vwapTypicalCache !== null) return vwapTypicalCache;
-          vwapTypicalCache = calculateRollingVWAP(context.history, "typical");
-          return vwapTypicalCache;
+          return vwapTypicalValue;
         },
       },
     };
 
-    // Process evaluation pipeline dynamically without switch statements
+    const report: Record<string, boolean> = {};
+
     for (const criterion of criteriaToTest) {
-      const rule = this.rulesRegistry.get(criterion);
+      // Prefer the per-instance stateful rule (pdlRule) if applicable,
+      // otherwise fall back to the shared stateless registry.
+      const rule: ICriterionRule | undefined =
+        criterion === "isPdlSweptAndReclaimed"
+          ? this.pdlRule
+          : SHARED_STATELESS_REGISTRY.get(criterion);
+
       if (rule) {
         report[criterion] = await rule.evaluate(context);
       } else {
-        console.warn(`Warning: Criterion "${criterion}" is not supported.`);
+        console.warn(`Warning: Criterion "${criterion}" is not registered.`);
         report[criterion] = false;
       }
+
       console.log(
         `${bar.symbol} - ${criterion}: ${report[criterion] ? "✅" : "❌"}`,
       );
     }
 
     const meetsCriteria = criteriaToTest.every((key) => report[key] === true);
-    const pdlRule = this.rulesRegistry.get(
-      "isPdlSweptAndReclaimed",
-    ) as PdlSweptAndReclaimedRule;
 
     return {
       meetsCriteria,
@@ -145,31 +239,11 @@ export class EvaluateStrategy {
       metrics: {
         rsi: context.metrics.rsi,
         vwap: criteriaToTest.includes("isBelowRollingVWAPWithDistance")
-          ? context.metrics.vwapTypical
-          : context.metrics.vwapClose,
+          ? vwapTypicalValue
+          : vwapCloseValue,
         rvol: context.metrics.rvol,
-        pendingSweep: pdlRule ? pdlRule.pendingSweep : false,
+        pendingSweep: this.pdlRule.pendingSweep,
       },
     };
   }
-}
-
-// --- Core Helper Functions ---
-function calculateRollingVWAP(
-  history: Bar[],
-  type: "close" | "typical",
-): number {
-  const recent = history.slice(-20);
-  if (recent.length === 0) return 0;
-
-  let totalTypicalPriceVolume = 0;
-  let totalVolume = 0;
-
-  for (const b of recent) {
-    const price = type === "typical" ? (b.high + b.low + b.close) / 3 : b.close;
-    totalTypicalPriceVolume += price * b.volume;
-    totalVolume += b.volume;
-  }
-
-  return totalVolume === 0 ? 0 : totalTypicalPriceVolume / totalVolume;
 }

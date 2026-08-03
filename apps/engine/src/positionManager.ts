@@ -1,6 +1,7 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { Bar } from "@my-platform/types";
 import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config/config";
+import type { OpenPosition } from "./modules/trades/trades.types.js";
 
 export class PositionManager {
   private DEFAULT_STOP_LOSS_PCT = 0.02;
@@ -8,7 +9,7 @@ export class PositionManager {
   private TRAILING_STOP_PCT = 0.015;
 
   private alpaca: Alpaca;
-  private positions: Map<string, any> = new Map();
+  private positions: Map<string, OpenPosition> = new Map();
   private highWaterMarks: Map<string, number> = new Map();
 
   /**
@@ -43,12 +44,12 @@ export class PositionManager {
       ]);
 
       this.positions.clear();
-      currentPositions.forEach((pos: any) => {
+      currentPositions.forEach((pos: OpenPosition) => {
         this.positions.set(pos.symbol, pos);
       });
 
       const openOrderSymbols = new Set<string>(
-        openOrders.map((order: any) => order.symbol),
+        openOrders.map((order: { symbol: string }) => order.symbol),
       );
 
       // Clear stale pendingBuys where the order is no longer active
@@ -161,15 +162,13 @@ export class PositionManager {
       console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
     }
 
+    // Use a single lookup to avoid redundant Map.get() calls and the
+    // potential for inconsistency if the watchlist is mutated mid-check.
     const strategy = MASTER_WATCHLIST.get(symbol);
     const customRisk = strategy
       ? {
-          takeProfitPct:
-            MASTER_WATCHLIST.get(symbol).takeProfitPct ||
-            this.DEFAULT_TAKE_PROFIT_PCT,
-          stopLossPct:
-            -MASTER_WATCHLIST.get(symbol).stopLossPct ||
-            -this.DEFAULT_STOP_LOSS_PCT,
+          takeProfitPct: strategy.takeProfitPct ?? this.DEFAULT_TAKE_PROFIT_PCT,
+          stopLossPct: -(strategy.stopLossPct ?? this.DEFAULT_STOP_LOSS_PCT),
         }
       : { takeProfitPct: 4, stopLossPct: -2 };
 

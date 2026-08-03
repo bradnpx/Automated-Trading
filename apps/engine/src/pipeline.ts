@@ -1,5 +1,5 @@
 // src/pipeline.ts
-import { BarSchema, Bar } from "@my-platform/types";
+import { BarSchema, Bar, TradeSignal } from "@my-platform/types";
 import {
   MASTER_WATCHLIST,
   STRATEGY_RISK_MAP,
@@ -11,19 +11,25 @@ import {
   StrategyFactory,
   StrategyIdentifier,
 } from "./strategies/StrategyFactory.js";
-import { resolve } from "path";
+import Alpaca from "@alpacahq/alpaca-trade-api";
+import { PositionManager } from "./positionManager.js";
+import { Executor } from "./executor.js";
+import { Broadcaster } from "./broadcaster.js";
+import { Scanner } from "./scanner.js";
+import { IStrategy } from "./strategies/IStrategy.js";
+import { TRADING_CONFIG } from "./config/config.js";
 
 export class StreamPipeline {
   private static isGlobalInitialized = false;
   private static ranTestBuy = false;
 
   constructor(
-    private alpaca: any,
-    private posManager: any,
-    private executor: any,
-    private broadcaster: any,
-    private scanner: any,
-    private strategies: Map<string, any>,
+    private alpaca: Alpaca,
+    private posManager: PositionManager,
+    private executor: Executor,
+    private broadcaster: Broadcaster,
+    private scanner: Scanner,
+    private strategies: Map<string, IStrategy>,
     private engineState: { isKilled: boolean },
   ) {}
 
@@ -52,11 +58,11 @@ export class StreamPipeline {
       }
     });
 
-    marketStream.onError((err: any) => {
+    marketStream.onError((err: unknown) => {
       console.error("❌ [STREAM] WebSocket encountered an error:", err);
     });
 
-    marketStream.onStockBar(async (barData: any) => {
+    marketStream.onStockBar(async (barData: Record<string, unknown>) => {
       try {
         const bar = this.parseBar(barData);
 
@@ -92,7 +98,7 @@ export class StreamPipeline {
     /**
      * Placing Orders
      */
-    tradeStream.onOrderUpdate(async (data: any) => {
+    tradeStream.onOrderUpdate(async (data: Record<string, unknown>) => {
       try {
         const { event, order, price, fillQty } = data;
 
@@ -140,7 +146,7 @@ export class StreamPipeline {
           // Compute PnL relative to entry tracking state
           const pos = this.posManager
             .getPositions()
-            .find((p: any) => p.symbol === order.symbol);
+            .find((p: { symbol: string }) => p.symbol === (order as Record<string, string>).symbol);
           const entry = pos ? parseFloat(pos.avg_entry_price) : 0;
 
           let pnl = 0;
@@ -184,7 +190,7 @@ export class StreamPipeline {
     tradeStream.connect();
   }
 
-  private parseBar(barData: any) {
+  private parseBar(barData: Record<string, unknown>): Bar {
     return BarSchema.parse({
       symbol: barData.Symbol ?? barData.symbol,
       timestamp: barData.Timestamp ?? barData.timestamp,
@@ -208,7 +214,7 @@ export class StreamPipeline {
    *                        onOrderUpdate when the broker confirms the fill /
    *                        cancel. syncPositions() acts as a final fallback.
    */
-  private async handleExits(bar: any): Promise<boolean> {
+  private async handleExits(bar: Bar): Promise<boolean> {
     if (!this.posManager.hasPosition(bar.symbol)) return false;
 
     const riskProfile = STRATEGY_RISK_MAP[bar.symbol];
@@ -275,7 +281,7 @@ export class StreamPipeline {
     }
   }
 
-  private async handleStrategyEntries(bar: any) {
+  private async handleStrategyEntries(bar: Bar): Promise<void> {
     const strategy = this.strategies.get(bar.symbol);
     if (!strategy || this.engineState.isKilled) return;
 
@@ -302,7 +308,7 @@ export class StreamPipeline {
           await this.executor.placeBuyOrder(bar.symbol, qty);
           await this.posManager
             .syncPositions()
-            .catch((err: any) =>
+            .catch((err: unknown) =>
               console.error("❌Background sync failed: ", err),
             );
         } else {
