@@ -1,5 +1,6 @@
 import axios from "axios";
 import { POLYGON_API } from "../config/config";
+import { response } from "express";
 
 interface PolygonFloatResponse {
   status: string;
@@ -38,9 +39,10 @@ export async function getPublicFreeFloat(
 
     return null;
   } catch (error) {
+    const reason = response.statusCode === 429 ? '429: Too many requests.' : response.statusCode;
     console.error(
       `[Polygon API Error] Failed to fetch float for ${ticker}:`,
-      error,
+      reason,
     );
     return null;
   }

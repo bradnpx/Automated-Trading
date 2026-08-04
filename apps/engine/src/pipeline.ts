@@ -3,6 +3,7 @@ import { BarSchema, Bar } from "@my-platform/types";
 import {
   MASTER_WATCHLIST,
   STRATEGY_RISK_MAP,
+  TRADING_CONFIG,
   syncTrackingCaches,
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
