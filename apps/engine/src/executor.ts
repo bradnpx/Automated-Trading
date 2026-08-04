@@ -30,7 +30,35 @@ export class Executor {
       // logTrade({...order, filled_at: new Date()});
       return order;
     } catch (err) {
-      console.error(`❌ [EXEC] Buy Order Failed for ${symbol}:`, err);
+      if (err.response.data.message.includes('fractionable')) {
+        console.error(`🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, roudning up and retrying...`);   
+        const rounded = Math.ceil(qty)
+        try {
+          const order = await this.alpaca.createOrder({
+            symbol,
+            rounded,
+            side: "buy",
+            type: "market",
+            time_in_force: "day",
+            extended_hours: isExtendedHours,
+          });
+          console.log(
+            `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
+          );
+          // logTrade({...order, filled_at: new Date()});
+          return order;
+        } catch (err) {
+          console.error(
+            `❌ [EXEC] Buy Order Failed for ${symbol}:`,
+            err.response.data.message,
+          );        
+          }
+      } else {
+        console.error(
+          `❌ [EXEC] Buy Order Failed for ${symbol}:`,
+          err.response.data.message,
+        );
+      }
     }
   }
 
