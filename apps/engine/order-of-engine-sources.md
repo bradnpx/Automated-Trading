@@ -1,0 +1,39 @@
+        dotenv
+        path
+        url
+    config
+        @alpaca
+        types
+        config
+    positionManager
+        @alpaca
+        logger
+        functions/getTradingSession
+    executor
+        @socket.io
+        types
+    broadcaster
+        preMarketScanner
+    scanner
+        express
+        cors
+        positionManager
+        executor
+        broadcaster
+        logger
+    api
+        types
+        logger
+    pipeline
+    tasks
+        types
+        config
+        StrategyFactory
+    market
+        scanner
+        config
+        StrategyFactory
+    scannertask
+index
+
+
