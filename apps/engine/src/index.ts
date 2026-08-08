@@ -15,6 +15,7 @@ import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
+import { bootstrapActiveTrades } from "./middleware/sessionBootstrap.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,7 @@ async function main() {
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
+  await bootstrapActiveTrades(alpaca);
 
   console.log("🔍[BOOTSTRAP] Executing primary gainer discovery sweep...");
   try {

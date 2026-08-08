@@ -9,6 +9,7 @@ export const SOCKET_EVENTS = {
   ACCOUNT: "account_update",
   SCANNER: "scanner_alert",
   HEALTH: "system_health",
+  ACTIVE_TRADES: "active_trades_update",
 } as const;
 
 export const OrderSchema = z.object({
@@ -95,4 +96,75 @@ export interface WatchlistStock {
   currentPosition?: number;
   takeProfitPct?: number;
   stopLossPct?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Active Trade Logging
+// ---------------------------------------------------------------------------
+
+/**
+ * Preserves the full Alpaca order object schema and augments it with the
+ * engine-specific fields that are only known at order-placement time.
+ */
+export interface ActiveTradeLog {
+  // ── Alpaca order fields (preserved verbatim from the broker response) ──
+  id: string;
+  client_order_id: string;
+  created_at: string;
+  updated_at: string;
+  submitted_at: string;
+  filled_at: string | null;
+  expired_at: string | null;
+  canceled_at: string | null;
+  failed_at: string | null;
+  replaced_at: string | null;
+  replaced_by: string | null;
+  replaces: string | null;
+  asset_id: string;
+  symbol: string;
+  asset_class: string;
+  notional: string | null;
+  qty: string;
+  filled_qty: string;
+  filled_avg_price: string | null;
+  order_class: string;
+  order_type: string;
+  type: string;
+  side: "buy" | "sell";
+  time_in_force: string;
+  limit_price: string | null;
+  stop_price: string | null;
+  status: string;
+  extended_hours: boolean;
+  legs: unknown[] | null;
+  trail_percent: string | null;
+  trail_price: string | null;
+  hwm: string | null;
+  subtag: string | null;
+  source: string | null;
+
+  // ── Engine-specific augmentation ──
+  /** The strategy identifier that triggered this buy. */
+  strategy: string;
+  /** Take-profit threshold (%) configured for this trade. */
+  takeProfitPct: number;
+  /** Stop-loss threshold (%) configured for this trade. */
+  stopLossPct: number;
+  /** ISO timestamp recorded by the engine at log time. */
+  logged_at: string;
+}
+
+/**
+ * Per-strategy aggregation produced by groupTradesStat.
+ */
+export interface StrategyTradeStats {
+  strategy: string;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  breakevens: number;
+  winRate: number;
+  netRealizedPnL: number;
+  avgTakeProfitPct: number;
+  avgStopLossPct: number;
 }

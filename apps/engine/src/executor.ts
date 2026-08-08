@@ -1,6 +1,6 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
-import { logTrade } from "./middleware/logger";
-import getTradingSession from "./functions/getTradingSession";
+import getTradingSession from "./functions/getTradingSession.js";
+import { logActiveTrade, removeActiveTrade } from "./middleware/activeTradeLogger.js";
 
 export class Executor {
   private alpaca: Alpaca;
@@ -10,11 +10,26 @@ export class Executor {
   }
 
   /**
-   * Places a market order to enter a position
+   * Places a market buy order and logs the resulting Alpaca order object,
+   * augmented with the strategy name and risk thresholds, to the active-trade
+   * log.
+   *
+   * @param symbol        Ticker symbol.
+   * @param qty           Fractional or whole share quantity.
+   * @param meta          Strategy context injected by the pipeline caller.
    */
-  async placeBuyOrder(symbol: string, qty: number, price: number) {
+  async placeBuyOrder(
+    symbol: string,
+    qty: number,
+    meta: { strategy: string; takeProfitPct: number; stopLossPct: number } = {
+      strategy: "unknown",
+      takeProfitPct: 2.2,
+      stopLossPct: 2.0,
+    },
+  ) {
     const session = getTradingSession();
     const isExtendedHours = session !== "market";
+
     try {
       const order = await this.alpaca.createOrder({
         symbol,
@@ -24,50 +39,61 @@ export class Executor {
         time_in_force: "day",
         extended_hours: isExtendedHours,
       });
+
       console.log(
         `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
       );
-      // logTrade({...order, filled_at: new Date()});
+
+      // Log the full Alpaca order object + engine-level metadata
+      await logActiveTrade(order as Record<string, unknown>, meta);
+
       return order;
-    } catch (err) {
-      if (err.response.data.message.includes('fractionable')) {
-        console.error(`🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, roudning up and retrying...`);   
-        const rounded = Math.ceil(qty)
+    } catch (err: any) {
+      if (err?.response?.data?.message?.includes("fractionable")) {
+        console.error(
+          `🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, rounding up and retrying...`,
+        );
+        const rounded = Math.ceil(qty);
         try {
           const order = await this.alpaca.createOrder({
             symbol,
-            rounded,
+            qty: rounded,
             side: "buy",
             type: "market",
             time_in_force: "day",
             extended_hours: isExtendedHours,
           });
+
           console.log(
-            `💰 [EXEC] BUY PLACED: ${symbol} | Qty: ${qty.toFixed(4)} | ID: ${order.id}`,
+            `💰 [EXEC] BUY PLACED (rounded): ${symbol} | Qty: ${rounded} | ID: ${order.id}`,
           );
-          // logTrade({...order, filled_at: new Date()});
+
+          // Log the retried order with the same metadata
+          await logActiveTrade(order as Record<string, unknown>, meta);
+
           return order;
-        } catch (err) {
+        } catch (retryErr: any) {
           console.error(
             `❌ [EXEC] Buy Order Failed for ${symbol}:`,
-            err.response.data.message,
-          );        
-          }
+            retryErr?.response?.data?.message,
+          );
+        }
       } else {
         console.error(
           `❌ [EXEC] Buy Order Failed for ${symbol}:`,
-          err.response.data.message,
+          err?.response?.data?.message,
         );
       }
     }
   }
 
   /**
-   * Closes an existing position entirely
+   * Closes an existing position entirely and removes the corresponding entry
+   * from the active-trade log once the close order is submitted.
    */
   async closePosition(symbol: string) {
     try {
-      //cancel outstanding orders pertaining to the symbol to 'clear out the lane'
+      // Cancel outstanding orders for this symbol to clear the lane
       const orders = await this.alpaca.getOrders({
         status: "open",
         until: undefined,
@@ -77,6 +103,7 @@ export class Executor {
         nested: undefined,
         symbols: [symbol],
       });
+
       for (const order of orders) {
         try {
           await this.alpaca.cancelOrder(order.id);
@@ -98,8 +125,8 @@ export class Executor {
       let position;
       try {
         position = await this.alpaca.getPosition(symbol);
-      } catch (err) {
-        if (err && err.response?.status === 404) {
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
           console.log(
             `✅ [EXEC] No active position found for ${symbol}, nothing to close.`,
           );
@@ -126,8 +153,19 @@ export class Executor {
         extended_hours: true,
       });
 
-      // const response = await this.alpaca.closePosition(symbol);
       console.log(`📉 [EXEC] CLOSING POSITION: ${symbol}...`);
+
+      // Remove the corresponding buy-side log entry now that the position
+      // is being closed. We match by symbol since the original order id is
+      // not readily available here; removeActiveTrade accepts an order id,
+      // so we look it up from the open orders we already fetched above.
+      const buyOrder = orders.find(
+        (o: Record<string, unknown>) => o["side"] === "buy",
+      );
+      if (buyOrder) {
+        await removeActiveTrade(String(buyOrder["id"] ?? ""));
+      }
+
       return response;
     } catch (err: any) {
       if (err?.response?.status === 404) {

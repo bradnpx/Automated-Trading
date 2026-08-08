@@ -300,7 +300,17 @@ export class StreamPipeline {
         const qty = (equity * TRADING_CONFIG.RISK_PER_TRADE) / bar.close;
         if (qty > 0) {
           this.broadcaster.broadcastSignal(signal);
-          await this.executor.placeBuyOrder(bar.symbol, qty);
+
+          // Resolve strategy metadata from the watchlist so the executor can
+          // attach it to the active-trade log entry.
+          const watchlistEntry = MASTER_WATCHLIST.get(bar.symbol);
+          const tradeMeta = {
+            strategy: watchlistEntry?.strategy ?? strategy.constructor.name,
+            takeProfitPct: watchlistEntry?.takeProfitPct ?? 2.2,
+            stopLossPct: watchlistEntry?.stopLossPct ?? 2.0,
+          };
+
+          await this.executor.placeBuyOrder(bar.symbol, qty, tradeMeta);
           await this.posManager
             .syncPositions()
             .catch((err: any) =>
@@ -320,7 +330,11 @@ export class StreamPipeline {
     if (!StreamPipeline.ranTestBuy) {
       const qty = 1;
       console.log(`🧪 TEST: Forcing a test buy for ${symbol}...`);
-      await this.executor.placeBuyOrder(symbol, parseFloat(qty.toFixed(4)));
+      await this.executor.placeBuyOrder(symbol, parseFloat(qty.toFixed(4)), {
+        strategy: "testBuy",
+        takeProfitPct: 2.2,
+        stopLossPct: 2.0,
+      });
       await this.posManager.syncPositions();
       StreamPipeline.ranTestBuy = true;
     }

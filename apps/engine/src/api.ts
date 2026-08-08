@@ -4,6 +4,7 @@ import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
+import { getActiveTrades, groupTradesStat } from "./middleware/activeTradeLogger.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
 
 interface ApiConfig {
@@ -36,6 +37,28 @@ export function startApiService({
   // GET: Watchlist
   app.get("/watchlist", async (req, res) => {
     return MASTER_WATCHLIST;
+  });
+
+  // GET: Active trade log — all currently open buy-side trades enriched with
+  // strategy and risk metadata.
+  app.get("/active-trades", async (_req, res) => {
+    try {
+      const trades = await getActiveTrades();
+      res.json(trades);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch active trades" });
+    }
+  });
+
+  // GET: Per-strategy aggregated statistics derived from the active-trade log.
+  app.get("/active-trades/stats", async (_req, res) => {
+    try {
+      const trades = await getActiveTrades();
+      const stats = groupTradesStat(trades);
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to compute strategy stats" });
+    }
   });
 
   // POST: Reset Engine Kill Switch
