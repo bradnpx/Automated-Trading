@@ -3,7 +3,8 @@ import cors from "cors";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { getTradeHistory } from "./middleware/logger.js";
+import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
+import { MASTER_WATCHLIST } from "./config/config.js";
 
 interface ApiConfig {
   posManager: PositionManager;
@@ -25,11 +26,16 @@ export function startApiService({
   // GET: Fetch Trade History
   app.get("/history", async (req, res) => {
     try {
-      const history = await getTradeHistory();
-      res.json(history.reverse());
+      const history = await fetchTradeHistory();
+      res.json(history);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch history" });
     }
+  });
+
+  // GET: Watchlist
+  app.get("/watchlist", async (req, res) => {
+    return MASTER_WATCHLIST;
   });
 
   // POST: Reset Engine Kill Switch

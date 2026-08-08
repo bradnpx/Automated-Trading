@@ -1,43 +1,35 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
-import { calculatePerformance } from "@/utils/analytics";
-import { TradeRecord } from "@my-platform/types";
+import type { TradeStats } from "@/lib/fetchTradeHistory";
 
-export default function PerformanceStats() {
-  const [history, setHistory] = useState<TradeRecord[]>([]);
-
-  useEffect(() => {
-    fetch("http://localhost:4001/history")
-      .then((res) => res.json())
-      .then(setHistory);
-  }, []);
-
-  const stats = useMemo(() => calculatePerformance(history), [history]);
-  
+export default function PerformanceStats(stats: TradeStats) {
+  stats = stats.stats // TODO: fix this
   const cards = [
     {
+      label: "Trades Today",
+      value: `${stats.tradesToday}`,
+    },
+    {
       label: "Avg Trades Per Day",
-      value: `${stats.avgTradesPerDay}`
+      value: `${stats.tradesPerDay}`,
     },
     {
       label: "Win Rate",
-      value: `${stats.winRate.toFixed(1)}%`,
-      sub: `${stats.totalTrades} closed trades`,
+      value: `${Number(stats.winRate / stats.totalTrades * 100).toFixed(2)}%`,
     },
     {
-      label: "Profit Factor",
-      value: stats.profitFactor.toFixed(2),
-      sub: "Gross Profit / Gross Loss",
+      label: "Average PnL",
+      value: `$${stats.dailyPnL?.toFixed(2)}`,
+      sub: "",
     },
     {
       label: "Avg Win / Avg Loss",
-      value: `$${stats.avgWin.toFixed(2)} / -$${stats.avgLoss.toFixed(2)}`,
+      value: `$${stats.avgWin?.toFixed(2)} / -$${stats.avgLoss?.toFixed(2)}`,
       sub: "Trade Expectancy",
     },
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-5 gap-4 mb-6">
       {cards.map((c) => (
         <div
           key={c.label}

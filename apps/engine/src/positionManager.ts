@@ -152,9 +152,43 @@ export class PositionManager {
     const pos = this.positions.get(symbol);
     if (!pos) return { shouldExit: false, reason: "" };
 
-    const entryPrice = parseFloat(pos.avg_entry_price);
-    const pnlPct = (currentPrice - entryPrice) / entryPrice;
+    const exitConditions = {
+      stoploss: false,
+      takeprofit: false,
+      agedOut: false
+    }
 
+    const entryPrice = parseFloat(pos.avg_entry_price);
+
+    function getRoundedPnLPercentage(currentPrice: number, entryPrice: number): number {
+      return ((currentPrice - entryPrice) / entryPrice) * 100;
+    }
+
+    function didPassPNLThresholds(): boolean {
+      const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
+      const customRisk = MASTER_WATCHLIST.get(symbol)
+        ? {
+            takeProfitPct:
+              MASTER_WATCHLIST.get(symbol)?.takeProfitPct ||
+              this.DEFAULT_TAKE_PROFIT_PCT,
+            stopLossPct:
+              -MASTER_WATCHLIST.get(symbol)?.stopLossPct ||
+              -this.DEFAULT_STOP_LOSS_PCT,
+          }
+        : { takeProfitPct: 4, stopLossPct: -2 };
+
+      if (pnlPct <= customRisk.stopLossPct) {
+        return true
+      }
+
+      if (pnlPct >= customRisk.takeProfitPct) {
+        return true
+      }
+
+      return false;
+    }
+
+    const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
     const currentHWM = this.highWaterMarks.get(symbol) || entryPrice;
     if (currentPrice > currentHWM) {
       this.highWaterMarks.set(symbol, currentPrice);
@@ -174,16 +208,18 @@ export class PositionManager {
       : { takeProfitPct: 4, stopLossPct: -2 };
 
     if (pnlPct <= customRisk.stopLossPct) {
+      console.log(`STOP_LOSS: ${pnlPct.toFixed(2)}%`)
       return {
         shouldExit: true,
-        reason: `STOP_LOSS: ${(pnlPct * 100).toFixed(2)}%`,
+        reason: `STOP_LOSS: ${pnlPct.toFixed(2)}%`,
       };
     }
 
     if (pnlPct >= customRisk.takeProfitPct) {
+      console.log(`TAKE_PROFIT: +${pnlPct.toFixed(2)}%`)
       return {
         shouldExit: true,
-        reason: `TAKE_PROFIT: +${(pnlPct * 100).toFixed(2)}%`,
+        reason: `TAKE_PROFIT: +${pnlPct.toFixed(2)}%`,
       };
     }
 
