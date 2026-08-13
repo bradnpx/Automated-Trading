@@ -35,8 +35,7 @@ export type StrategyCriterion =
   | "isDonchianBreakdown"
   | "isRsiBelowLower"
   | "isSmaCross"
-  | "isSmaCrossDown"
-  ;
+  | "isSmaCrossDown";
 
 export class EvaluateStrategy {
   private history: Bar[] = [];

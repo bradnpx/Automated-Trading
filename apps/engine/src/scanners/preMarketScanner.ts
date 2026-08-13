@@ -75,9 +75,9 @@ export async function runPreMarketScanner() {
         );
         eliteWatchlist.push(ticker);
       } else {
-        console.log(
-          `⛔ [REJECTED] ${ticker} | Float: ${freeFloat !== null ? (freeFloat / 1e6).toFixed(2) + "M" : "unavailable"} | Threshold: <${(LOW_FLOAT_THRESHOLD / 1e6).toFixed(0)}M`,
-        );
+        // console.log(
+        //   `⛔ [REJECTED] ${ticker} | Float: ${freeFloat !== null ? (freeFloat / 1e6).toFixed(2) + "M" : "unavailable"} | Threshold: <${(LOW_FLOAT_THRESHOLD / 1e6).toFixed(0)}M`,
+        // );
       }
     }
 

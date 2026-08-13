@@ -1,8 +1,17 @@
 "use client";
-import type { TradeStats } from "@/lib/fetchTradeHistory";
+import { getStats, type TradeStats, History } from "@/lib/fetchTradeHistory";
 
-export default function PerformanceStats(stats: TradeStats) {
-  stats = stats.stats // TODO: fix this
+interface Props {
+  history: History;
+  strategy: string;
+  limit?: number;
+}
+export default function PerformanceStats(props: Props) {
+  // stats = stats.stats // TODO: fix this
+
+  const stats = getStats(props.history.rawLogs, props.history.groupedTrades, props.strategy, props.limit || 0);
+  console.log(stats)
+  // return <></>
   const cards = [
     {
       label: "Trades Today",
@@ -14,12 +23,13 @@ export default function PerformanceStats(stats: TradeStats) {
     },
     {
       label: "Win Rate",
-      value: `${Number(stats.winRate / stats.totalTrades * 100).toFixed(2)}%`,
+      value: `${Number((stats.winRate / stats.totalTrades) * 100).toFixed(2)}%`,
     },
     {
       label: "Average PnL",
       value: `$${stats.dailyPnL?.toFixed(2)}`,
       sub: "",
+      color: stats.dailyPnL >= 0 ? "text-green-600" : "text-red-600",
     },
     {
       label: "Avg Win / Avg Loss",
@@ -38,7 +48,7 @@ export default function PerformanceStats(stats: TradeStats) {
           <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">
             {c.label}
           </p>
-          <p className="text-2xl font-black text-slate-400">{c.value}</p>
+          <p className={`text-2xl font-black ${c.color || 'text-slate-400'}`}>{c.value}</p>
           <p className="text-sm text-slate-400 mt-1 italic">{c.sub}</p>
         </div>
       ))}

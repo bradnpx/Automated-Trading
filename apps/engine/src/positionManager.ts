@@ -1,6 +1,7 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 import { Bar } from "@my-platform/types";
 import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config/config";
+import { StockBlacklist } from "./functions/getStockBlacklist";
 
 export class PositionManager {
   private DEFAULT_STOP_LOSS_PCT = 0.02;
@@ -8,6 +9,7 @@ export class PositionManager {
   private TRAILING_STOP_PCT = 0.015;
 
   private alpaca: Alpaca;
+  private blacklist: StockBlacklist | undefined;
   private positions: Map<string, any> = new Map();
   private highWaterMarks: Map<string, number> = new Map();
 
@@ -27,6 +29,15 @@ export class PositionManager {
 
   constructor(alpaca: Alpaca) {
     this.alpaca = alpaca;
+  }
+
+  async init(): Promise<this> {
+    if (!this.blacklist) {
+      this.blacklist = await StockBlacklist.getInstance(30000);
+    }
+    const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
+    console.log("blacklistedSymbols", blacklistedSymbols);
+    return this;
   }
 
   /**
@@ -90,6 +101,16 @@ export class PositionManager {
   }
 
   canOpenPosition(symbol: string): boolean {
+    const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
+    const isBlacklisted = blacklistedSymbols.includes(symbol);
+    
+    if (isBlacklisted) {
+      console.log(
+        `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
+      );
+      return false;
+    }
+
     return !this.pendingBuys.has(symbol) && !this.positions.has(symbol);
   }
 
@@ -155,12 +176,15 @@ export class PositionManager {
     const exitConditions = {
       stoploss: false,
       takeprofit: false,
-      agedOut: false
-    }
+      agedOut: false,
+    };
 
     const entryPrice = parseFloat(pos.avg_entry_price);
 
-    function getRoundedPnLPercentage(currentPrice: number, entryPrice: number): number {
+    function getRoundedPnLPercentage(
+      currentPrice: number,
+      entryPrice: number,
+    ): number {
       return ((currentPrice - entryPrice) / entryPrice) * 100;
     }
 
@@ -178,11 +202,11 @@ export class PositionManager {
         : { takeProfitPct: 4, stopLossPct: -2 };
 
       if (pnlPct <= customRisk.stopLossPct) {
-        return true
+        return true;
       }
 
       if (pnlPct >= customRisk.takeProfitPct) {
-        return true
+        return true;
       }
 
       return false;
@@ -208,7 +232,7 @@ export class PositionManager {
       : { takeProfitPct: 4, stopLossPct: -2 };
 
     if (pnlPct <= customRisk.stopLossPct) {
-      console.log(`STOP_LOSS: ${pnlPct.toFixed(2)}%`)
+      console.log(`STOP_LOSS: ${pnlPct.toFixed(2)}%`);
       return {
         shouldExit: true,
         reason: `STOP_LOSS: ${pnlPct.toFixed(2)}%`,
@@ -216,7 +240,7 @@ export class PositionManager {
     }
 
     if (pnlPct >= customRisk.takeProfitPct) {
-      console.log(`TAKE_PROFIT: +${pnlPct.toFixed(2)}%`)
+      console.log(`TAKE_PROFIT: +${pnlPct.toFixed(2)}%`);
       return {
         shouldExit: true,
         reason: `TAKE_PROFIT: +${pnlPct.toFixed(2)}%`,

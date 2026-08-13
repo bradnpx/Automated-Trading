@@ -1,4 +1,3 @@
-// src/tasks.ts
 
 export function startBackgroundTasks(
   alpaca: any,
@@ -12,7 +11,9 @@ export function startBackgroundTasks(
   // this is a safety-net fallback only.
   setInterval(async () => {
     try {
-      console.log("🔄 [TASKS] Running slow fallback position synchronization...");
+      console.log(
+        "🔄 [TASKS] Running slow fallback position synchronization...",
+      );
       await posManager.syncPositions();
     } catch (err) {
       console.error("❌ Task Engine Safety Sync Error:", err);
@@ -37,6 +38,7 @@ export function startBackgroundTasks(
         day_pl_pct:
           parseFloat(account.equity) / parseFloat(account.last_equity) - 1,
       });
+
     } catch (err) {
       console.error("❌ Task Engine Dashboard Broadcast Error:", err);
     }
@@ -67,7 +69,9 @@ export function startBackgroundTasks(
           if (posManager.hasPendingExit(pos.symbol)) return;
 
           posManager.markPendingExit(pos.symbol);
-          console.log(`🚨 [TASKS] Exit condition triggered for ${pos.symbol}. Closing...`);
+          console.log(
+            `🚨 [TASKS] Exit condition triggered for ${pos.symbol}. Closing...`,
+          );
 
           try {
             await executor.closePosition(pos.symbol);

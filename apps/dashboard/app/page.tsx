@@ -4,8 +4,8 @@ import AccountSummary from "@/components/AccountSummary";
 import EquityChart from "@/components/EquityChart";
 import TickerTable from "@/components/TickerTable";
 import PortfolioTable from "@/components/PortfolioTable";
-import PerformanceStats from "@/components/PerformanceStats";
-import TradeHistory from "@/components/TradeHistory";
+import PerformanceStats from "@/components/TradeLogs/PerformanceStats";
+import TradeHistory from "@/components/TradeLogs/TradeHistory";
 import ScannerAlerts from "@/components/ScannerAlerts";
 import HealthMonitor from "@/components/HealthMonitor";
 import Nav from "@/components/Navigation";
@@ -53,7 +53,7 @@ export default function Home() {
         <div className="col-span-12">
           <AccountSummary />
           <EquityChart />
-          <TradeHistory history={history} />
+          {/* <TradeHistory history={history} /> */}
         </div>
         <div className="col-span-6">
           <TickerTable />

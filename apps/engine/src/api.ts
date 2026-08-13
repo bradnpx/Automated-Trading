@@ -35,7 +35,7 @@ export function startApiService({
 
   // GET: Watchlist
   app.get("/watchlist", async (req, res) => {
-    return MASTER_WATCHLIST;
+    res.json(JSON.stringify(Object.fromEntries(MASTER_WATCHLIST)));
   });
 
   // POST: Reset Engine Kill Switch

@@ -15,6 +15,8 @@ import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
+import { fetchTradeHistory } from "./middleware/logger.js";
+import { StockBlacklist } from "./functions/getStockBlacklist.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +25,9 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 async function main() {
   // INITIALIZATION LAYER
   const alpaca = new Alpaca();
+  const blacklist = await StockBlacklist.getInstance(30000);
   const posManager = new PositionManager(alpaca);
+  await posManager.init();
   const executor = new Executor(alpaca);
   const broadcaster = new Broadcaster(4000);
   const scanner = new Scanner();
@@ -41,8 +45,8 @@ async function main() {
         MASTER_WATCHLIST.set(symbol, {
           symbol,
           strategy: "dayTradeMicroScalp",
-          stopLossPct: 2,
-          takeProfitPct: 2.2,
+          stopLossPct: 5,
+          takeProfitPct: 5,
         });
       }
     }

@@ -1,50 +1,21 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { StrategyIdentifier } from "../strategies/StrategyFactory";
-import { bootstrapMarketSession } from "../scanner";
-
-interface StrategyConfig {
-  id: string;
-  name: string;
-  watchlist: string[];
-  takeProfitPct?: number;
-  stopLossPct?: number;
-}
 
 export interface MasterWatchlistItem {
   symbol: string;
   strategy: string;
   takeProfitPct?: number;
   stopLossPct?: number;
+  totalRisk?: number;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// dotenv.config({ path: path.resolve(__dirname, "@/.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
+const defaultRisk = process.env.RISK_PER_TRADE || 0.05;
 export const POLYGON_API = process.env.POLYGON_API_KEY;
 export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
-
-function parseStrategiesFromEnv(): StrategyConfig[] {
-  try {
-    const raw = process.env.STRATEGIES;
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    // Type-guard filtering ensures runtime schema compliance
-    return parsed.filter(
-      (strat: any): strat is StrategyConfig =>
-        !!strat.id && !!strat.name && Array.isArray(strat.watchlist),
-    );
-  } catch (error) {
-    console.error("❌ Failed to parse strategies from env:", error);
-    return [];
-  }
-}
-
 export const ALL_TRACKED_SYMBOLS: string[] = [];
 export const GLOBAL_WATCHLIST: string[] = [];
 export const SYMBOL_STRATEGY_MAP = MASTER_WATCHLIST;
@@ -96,6 +67,7 @@ function loadManualStrategiesFromEnv(): void {
       .filter(Boolean);
     const strategyName = process.env[`${prefix}_NAME`] || "defaultStrategy";
 
+    const totalRisk: number = Number(process.env[`${prefix}_RISK_PER_TRADE`])
     const takeProfit = process.env[`${prefix}_TAKE_PROFIT`]
       ? parseFloat(process.env[`${prefix}_TAKE_PROFIT`]!)
       : 2.2;
@@ -109,6 +81,7 @@ function loadManualStrategiesFromEnv(): void {
         strategy: strategyName,
         takeProfitPct: takeProfit,
         stopLossPct: stopLoss,
+        totalRisk: totalRisk,
       });
       console.log(
         `📌 [CONFIG] Loaded manual ticker ${symbol} to Master Watchlist [Strategy: ${strategyName}]`,
@@ -125,7 +98,7 @@ console.log(
 );
 
 export const TRADING_CONFIG = {
-  RISK_PER_TRADE: 0.05, // 5% of total equity
+  RISK_PER_TRADE: Number(defaultRisk), // 5% of total equity
   PORT_WS_BROADCASTER: 4000,
   PORT_KILL_SWITCH_API: 4001,
 };

@@ -6,6 +6,7 @@
 - Styling: Tailwind CSS, Radix UI primitives
 - State: Zustand (global client state), TanStack Query (server/API state)
 - Testing: Vitest (unit/integration), Playwright (E2E)
+- Database: SQLite
 
 ## Component & File Structure
 - use /schema.md for file hierarchy

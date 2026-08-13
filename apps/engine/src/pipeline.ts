@@ -7,6 +7,8 @@ import {
   syncTrackingCaches,
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
+import { StockBlacklist } from "./functions/getStockBlacklist.js";
+
 import { getPreviousDayLow } from "./utils/market.js";
 import {
   StrategyFactory,
@@ -267,6 +269,7 @@ export class StreamPipeline {
         strategy: "dayTradeMicroScalp",
         stopLossPct: 2.0,
         takeProfitPct: 2.2,
+        totalRisk: 0.01,
       });
 
       // CHANGED: Forces flat compatibility caches to update in-place immediately
@@ -296,8 +299,11 @@ export class StreamPipeline {
       this.posManager.canOpenPosition(bar.symbol)
     ) {
       try {
+        const risk: number =
+          MASTER_WATCHLIST.get(bar.symbol)?.totalRisk ||
+          TRADING_CONFIG.RISK_PER_TRADE;
         const equity = await this.posManager.getOrFetchEquity();
-        const qty = (equity * TRADING_CONFIG.RISK_PER_TRADE) / bar.close;
+        const qty = (equity * risk) / bar.close;
         if (qty > 0) {
           this.broadcaster.broadcastSignal(signal);
           await this.executor.placeBuyOrder(bar.symbol, qty);

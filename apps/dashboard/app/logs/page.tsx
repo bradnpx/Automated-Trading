@@ -1,17 +1,17 @@
 "use client";
 import { useState, useEffect } from "react";
 import AccountSummary from "@/components/AccountSummary";
-import PerformanceStats from "@/components/PerformanceStats";
-import TradeHistory from "@/components/TradeHistory";
+import PerformanceStats from "@/components/TradeLogs/PerformanceStats";
+import TradeHistory from "@/components/TradeLogs/TradeHistory";
 import Nav from "@/components/Navigation";
-import { fetchTradeHistory, TradelogContext } from "@/lib/fetchTradeHistory";
+import { fetchTradeHistory, fetchWatchlist } from "@/lib/fetchTradeHistory";
 import type { Trade, History, TradeStats } from "@/lib/fetchTradeHistory";
 
 type TradeProps = {
-  stats: TradeStats[],
-  groupedTrade: History[],
-  rawLogs: any[]
-}
+  stats: TradeStats[];
+  groupedTrade: History[];
+  rawLogs: any[];
+};
 
 export default function Home() {
   const [tradeHistory, setTradeHistory] = useState({
@@ -35,7 +35,7 @@ export default function Home() {
     <>
       <Nav />
       <AccountSummary />
-      <PerformanceStats stats={tradeHistory.stats} />
+      {/* <PerformanceStats stats={tradeHistory.stats} /> */}
       <TradeHistory history={tradeHistory} />
     </>
   );

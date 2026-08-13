@@ -37,12 +37,12 @@ export const StatelessRules: Partial<
   isInSession: () => getTradingSession() === "market",
   isInPriceRange: ({ bar }) => bar.close >= 2 && bar.close <= 20,
   isLowFloat: async ({ bar, metrics }) => {
-    const float = await getPublicFreeFloat(bar.symbol)
-      return float !== null && float < 25000000
+    const float = await getPublicFreeFloat(bar.symbol);
+    return float !== null && float < 25000000;
   },
   isNotExtended: ({ bar, metrics }) =>
     (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.04,
-  isPennyStock: ({bar}) => bar.close >= 1 && bar.close <= 10,
+  isPennyStock: ({ bar }) => bar.close >= 1 && bar.close <= 10,
   isPremarket: () => getTradingSession() === "premarket",
   isPremarketGapper: async ({ getPremarket }) => {
     const data = await getPremarket();
@@ -69,8 +69,14 @@ export const StatelessRules: Partial<
       minute: "numeric",
       hour12: false,
     }).formatToParts(date);
-    const nyHour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-    const min = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+    const nyHour = parseInt(
+      parts.find((p) => p.type === "hour")?.value ?? "0",
+      10,
+    );
+    const min = parseInt(
+      parts.find((p) => p.type === "minute")?.value ?? "0",
+      10,
+    );
     return (nyHour === 9 && min >= 45) || (nyHour === 10 && min <= 30);
   },
   isWithinTightOpeningWindow: ({ bar }) => {
@@ -81,22 +87,28 @@ export const StatelessRules: Partial<
       minute: "numeric",
       hour12: false,
     }).formatToParts(date);
-    const nyHour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-    const min = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+    const nyHour = parseInt(
+      parts.find((p) => p.type === "hour")?.value ?? "0",
+      10,
+    );
+    const min = parseInt(
+      parts.find((p) => p.type === "minute")?.value ?? "0",
+      10,
+    );
     return nyHour === 9 && min >= 35 && min <= 55;
   },
   isDonchianBreakout: ({ bar, history }) => {
     const period = 20;
     if (history.length < period) return false;
     const recentBars = history.slice(-period);
-    const upper = Math.max(...recentBars.map(b => b.high));
+    const upper = Math.max(...recentBars.map((b) => b.high));
     return bar.close > upper;
   },
   isDonchianBreakdown: ({ bar, history }) => {
     const period = 20;
     if (history.length < period) return false;
     const recentBars = history.slice(-period);
-    const lower = Math.min(...recentBars.map(b => b.low));
+    const lower = Math.min(...recentBars.map((b) => b.low));
     return bar.close < lower;
   },
   isRsiBelowLower: ({ metrics }) => {
@@ -106,26 +118,26 @@ export const StatelessRules: Partial<
     const fastPeriod = 20;
     const slowPeriod = 50;
     if (history.length < slowPeriod) return false;
-    
+
     const recentFast = history.slice(-fastPeriod);
     const recentSlow = history.slice(-slowPeriod);
-    
+
     const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
     const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
-    
+
     return fastMa > slowMa;
   },
   isSmaCrossDown: ({ history }) => {
     const fastPeriod = 20;
     const slowPeriod = 50;
     if (history.length < slowPeriod) return false;
-    
+
     const recentFast = history.slice(-fastPeriod);
     const recentSlow = history.slice(-slowPeriod);
-    
+
     const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
     const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
-    
+
     return fastMa < slowMa;
   },
 };

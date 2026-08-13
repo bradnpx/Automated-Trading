@@ -29,3 +29,4 @@ apps/
                 polygon.ts  # polygon trading API emdpoint
                 yfinance.ts # yfinance API endpoint
                 massive.ts  # massive API endpoint
+    docker/             # Docker build to host app

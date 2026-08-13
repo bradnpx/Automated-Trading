@@ -11,6 +11,7 @@ export class DayTradeMicroScalp implements IStrategy {
     "isBullish",
     "isHoldingVWAP",
     "isNotExtended",
+    "isBetweenTwoAndTwenty",
   ];
 
   public hydrate(bars: Bar[], prevLow?: number) {
