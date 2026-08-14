@@ -13,8 +13,8 @@ export default function LogItem(item: Props) {
       <td className="px-4 py-2 text-slate-400">
         {trade.openedOn
           ? new Date(trade.openedOn).toLocaleDateString() +
-            " " +
-            new Date(trade.closedOn).toLocaleTimeString()
+            " - " +
+            new Date(trade.closedOn).toLocaleDateString()
           : ""}{" "}
       </td>
       <td className="px-4 py-2 font-bold">{trade.symbol}</td>
