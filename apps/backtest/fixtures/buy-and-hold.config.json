@@ -1,0 +1,14 @@
+{
+  "strategyId": "buyAndHold",
+  "strategyParameters": {},
+  "initialCash": 1000,
+  "riskPerTrade": 1,
+  "positionSizingMethod": "equity-fraction",
+  "maxPositionPct": 1,
+  "stopLossPct": null,
+  "takeProfitPct": null,
+  "slippageBps": 0,
+  "commissionPerOrder": 0,
+  "intrabarFillPriority": "stop-first",
+  "closeOpenPositionsAtEnd": true
+}

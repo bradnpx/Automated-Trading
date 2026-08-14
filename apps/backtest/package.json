@@ -1,0 +1,14 @@
+{
+  "name": "backtest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backtest": "../engine/node_modules/.bin/tsx src/cli.ts",
+    "test": "../engine/node_modules/.bin/tsx src/test/run.ts",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@my-platform/types": "workspace:*"
+  }
+}

@@ -5,6 +5,7 @@ import {
   MASTER_WATCHLIST,
 } from "../config/config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
+import { getEasternTimeParts } from "../functions/getTradingSession.js";
 
 /**
  * Converts the async generator returned by getBarsV2 into a plain array.
@@ -52,17 +53,24 @@ export async function getPreviousDayLow(
 ): Promise<number> {
   try {
     const gen = alpaca.getBarsV2(symbol, {
-      start: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-      end: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+      start: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
+      end: new Date().toISOString(),
       timeframe: alpaca.newTimeframe(1, alpaca.timeframeUnit.DAY),
       feed: "iex",
     });
 
     const bars = await barsToArray(gen);
-    if (bars.length === 0) return 0;
+    const currentEasternDate = getEasternTimeParts(new Date()).dateKey;
+    const completedDailyBars = bars.filter((bar) => {
+      const timestamp = bar.Timestamp ?? bar.timestamp;
+      return (
+        timestamp !== undefined &&
+        getEasternTimeParts(timestamp).dateKey !== currentEasternDate
+      );
+    });
+    const priorDayBar = completedDailyBars[completedDailyBars.length - 1];
 
-    const b = bars[bars.length - 1];
-    return b.LowPrice ?? b.Low ?? b.low ?? 0;
+    return priorDayBar?.LowPrice ?? priorDayBar?.Low ?? priorDayBar?.low ?? 0;
   } catch (error) {
     console.error(`❌ Error fetching previous day low for ${symbol}:`, error);
     return 0;
@@ -116,11 +124,9 @@ export async function warmupStrategies(
         }),
       );
 
-      // Derive baseline support levels using the absolute lowest point in the warmup block
-      const prevLow =
-        historicalBars.length > 0
-          ? Math.min(...historicalBars.map((b) => b.low))
-          : 0;
+      // Previous-day-low strategies require the completed prior trading session,
+      // not the minimum from the current intraday warm-up window.
+      const prevLow = await getPreviousDayLow(alpaca, symbol);
 
       // 2. DYNAMIC STEP: Instantiate the exact type of strategy class requested by the config matrix
       const strategy = StrategyFactory.create(targetStrategyKey);

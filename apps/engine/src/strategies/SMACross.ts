@@ -10,13 +10,14 @@ import { IStrategy } from "./IStrategy.js";
  * Warmup: the strategy emits no signal until it has at least `slow` bars of history.
  */
 export class SMACross implements IStrategy {
-  private evaluator = new EvaluateStrategy();
+  private evaluator: EvaluateStrategy;
   private fast: number;
   private slow: number;
   private _in: boolean = false;
 
   private criteria: StrategyCriterion[] = [
-    "isSmaCross" as StrategyCriterion,
+    "isSmaCross",
+    "isSmaCrossDown",
   ];
 
   constructor(fast: number = 20, slow: number = 50) {
@@ -25,6 +26,10 @@ export class SMACross implements IStrategy {
     }
     this.fast = fast;
     this.slow = slow;
+    this.evaluator = new EvaluateStrategy({
+      smaFastPeriod: fast,
+      smaSlowPeriod: slow,
+    });
   }
 
   public hydrate(bars: Bar[], prevLow?: number): void {
@@ -35,7 +40,7 @@ export class SMACross implements IStrategy {
     try {
       const verification = await this.evaluator.evaluate(bar, this.criteria);
 
-      if (verification.meetsCriteria) {
+      if (verification.report.isSmaCross) {
         this._in = true;
         return {
           symbol: bar.symbol,
@@ -43,7 +48,7 @@ export class SMACross implements IStrategy {
           confidence: 1.0,
           reason: "sma_in",
         };
-      } else if (verification.report["isSmaCrossDown" as StrategyCriterion]) {
+      } else if (verification.report.isSmaCrossDown) {
         this._in = false;
          return {
           symbol: bar.symbol,

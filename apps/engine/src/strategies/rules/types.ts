@@ -1,9 +1,11 @@
 import { Bar } from "@my-platform/types";
+import { StrategyParameters } from "../strategyConfig";
 
 export interface RuleContext {
     bar: Bar;
     history: Bar[];
     prevLow: number;
+    parameters: StrategyParameters;
     metrics: {
         readonly rsi: number;
         readonly rvol: number;

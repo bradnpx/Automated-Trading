@@ -6,11 +6,12 @@ export class FifteenMinMorningBounce implements IStrategy {
   private evaluator = new EvaluateStrategy();
   private prevLow: number = 0;
 
-  // Liquidity Sweep criteria map
+  // Morning PDL liquidity-sweep reclaim during the defined opening window.
   private criteria: StrategyCriterion[] = [
     "isInSession",
     "isWithinOpeningWindow",
-    "isBounced",
+    "isPdlSweptAndReclaimed",
+    "isBullishFollowthrough",
   ];
 
   public hydrate(bars: Bar[], prevLow?: number) {
@@ -44,13 +45,13 @@ export class FifteenMinMorningBounce implements IStrategy {
           symbol: bar.symbol,
           action: "BUY",
           confidence: 1,
-          reason: `PDL reclaim after sweep | VWAP dist ${(metrics.vwap - bar.close).toFixed(2)}`,
+          reason: `Morning PDL reclaim after sweep | PDL ${this.prevLow.toFixed(2)}`,
         };
       }
 
       return this.hold(
         bar,
-        `VWAP ${metrics.vwap.toFixed(2)} | PDL ${this.prevLow} | sweep pending:${metrics.pendingSweep}`,
+        `PDL ${this.prevLow.toFixed(2)} | sweep pending:${metrics.pendingSweep}`,
       );
     } catch (error) {
       console.error(

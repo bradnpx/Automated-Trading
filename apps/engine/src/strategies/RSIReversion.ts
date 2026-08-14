@@ -10,7 +10,7 @@ import { IStrategy } from "./IStrategy.js";
  * exceeds `upper` (overbought → take profit). Equal weight across all "in" symbols.
  */
 export class RSIReversion implements IStrategy {
-  private evaluator = new EvaluateStrategy();
+  private evaluator: EvaluateStrategy;
   private lower: number;
   private upper: number;
   private _in: boolean = false;
@@ -25,6 +25,11 @@ export class RSIReversion implements IStrategy {
     }
     this.lower = lower;
     this.upper = upper;
+    this.evaluator = new EvaluateStrategy({
+      rsiPeriod: period,
+      rsiLower: lower,
+      rsiUpper: upper,
+    });
   }
 
   public hydrate(bars: Bar[], prevLow?: number): void {

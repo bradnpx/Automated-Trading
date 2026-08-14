@@ -1,58 +1,83 @@
-import { Bar } from "@my-platform/types";
+export type TradingSession =
+  | "premarket"
+  | "market"
+  | "aftermarket"
+  | "overnight";
 
-/**
- * Returns the current US market session based on Eastern Time.
- *
- * Fix: the previous implementation hardcoded UTC-4, which is only correct during
- * EDT (summer). During EST (winter, Nov–Mar) the correct offset is UTC-5, causing
- * the opening window to be misclassified by a full hour. We now derive the offset
- * dynamically by comparing the local UTC time against the Eastern locale string.
- */
-function getEasternHourAndMinute(): { hour: number; minute: number } {
-  const now = new Date();
-
-  // Use Intl to get the current wall-clock time in New York, which automatically
-  // accounts for both EST (UTC-5) and EDT (UTC-4) depending on the date.
-  const easternParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-
-  const hour = parseInt(
-    easternParts.find((p) => p.type === "hour")?.value ?? "0",
-    10,
-  );
-  const minute = parseInt(
-    easternParts.find((p) => p.type === "minute")?.value ?? "0",
-    10,
-  );
-
-  return { hour, minute };
+export interface EasternTimeParts {
+  dateKey: string;
+  hour: number;
+  minute: number;
 }
 
-export default function getTradingSession() {
-  const { hour, minute } = getEasternHourAndMinute();
+function toDate(value: Date | string): Date {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid market timestamp: ${String(value)}`);
+  }
+
+  return date;
+}
+
+/**
+ * Converts a timestamp to an America/New_York session date and time. Supplying
+ * a bar timestamp keeps historical replay deterministic while the default
+ * preserves the live engine's current-time behaviour.
+ */
+export function getEasternTimeParts(
+  timestamp: Date | string = new Date(),
+): EasternTimeParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(toDate(timestamp));
+
+  const valueFor = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "0";
+
+  const year = valueFor("year");
+  const month = valueFor("month");
+  const day = valueFor("day");
+
+  return {
+    dateKey: `${year}-${month}-${day}`,
+    hour: Number.parseInt(valueFor("hour"), 10),
+    minute: Number.parseInt(valueFor("minute"), 10),
+  };
+}
+
+/**
+ * Returns the U.S. market session at the supplied timestamp. The timestamp is
+ * optional only for live callers; strategies should pass their bar timestamp.
+ */
+export default function getTradingSession(
+  timestamp: Date | string = new Date(),
+): TradingSession {
+  const { hour, minute } = getEasternTimeParts(timestamp);
   const totalMinutes = hour * 60 + minute;
 
-  // Premarket:   4:00 AM – 9:29 AM ET
-  // Market:      9:30 AM – 4:00 PM ET
-  // Aftermarket: 4:01 PM – 8:00 PM ET
-  // Overnight:   everything else
+  const premarketStart = 4 * 60;
+  const marketOpen = 9 * 60 + 30;
+  const marketClose = 16 * 60;
+  const aftermarketEnd = 20 * 60;
 
-  const PREMARKET_START  = 4 * 60;        // 04:00
-  const MARKET_OPEN      = 9 * 60 + 30;   // 09:30
-  const MARKET_CLOSE     = 16 * 60;       // 16:00
-  const AFTERMARKET_END  = 20 * 60;       // 20:00
-
-  if (totalMinutes >= PREMARKET_START && totalMinutes < MARKET_OPEN) {
+  if (totalMinutes >= premarketStart && totalMinutes < marketOpen) {
     return "premarket";
-  } else if (totalMinutes >= MARKET_OPEN && totalMinutes < MARKET_CLOSE) {
-    return "market";
-  } else if (totalMinutes >= MARKET_CLOSE && totalMinutes < AFTERMARKET_END) {
-    return "aftermarket";
-  } else {
-    return "overnight";
   }
+
+  if (totalMinutes >= marketOpen && totalMinutes < marketClose) {
+    return "market";
+  }
+
+  if (totalMinutes >= marketClose && totalMinutes < aftermarketEnd) {
+    return "aftermarket";
+  }
+
+  return "overnight";
 }

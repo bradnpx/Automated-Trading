@@ -34,6 +34,12 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
 
+  apps/backtest:
+    dependencies:
+      '@my-platform/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+
   apps/dashboard:
     dependencies:
       '@my-platform/types':
@@ -1174,6 +1180,7 @@ packages:
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   '@unrs/resolver-binding-android-arm-eabi@1.11.1':
     resolution: {integrity: sha512-ppLRUgHVaGRWUx0R0Ut06Mjo9gBaBkg3v/8AxusGLhsIotbBLuRk51rAzqLC8gq6NyyAojEXglNjzf6R948DNw==}
@@ -2499,6 +2506,7 @@ packages:
   nats@1.4.12:
     resolution: {integrity: sha512-Jf4qesEF0Ay0D4AMw3OZnKMRTQm+6oZ5q8/m4gpy5bTmiDiK6wCXbZpzEslmezGpE93LV3RojNEG6dpK/mysLQ==}
     engines: {node: '>= 8.0.0'}
+    deprecated: Package moved. Use @nats-io/transport-node from https://github.com/nats-io/nats.js
     hasBin: true
 
   natural-compare@1.4.0:
@@ -2580,6 +2588,7 @@ packages:
   nuid@1.1.6:
     resolution: {integrity: sha512-Eb3CPCupYscP1/S1FQcO5nxtu6l/F3k0MQ69h7f5osnsemVk5pkc8/5AyalVT+NCfra9M71U8POqF6EZa6IHvg==}
     engines: {node: '>= 8.16.0'}
+    deprecated: 'Package deprecated. Use @nats-io/nuid instead: https://www.npmjs.com/package/@nats-io/nuid'
 
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}

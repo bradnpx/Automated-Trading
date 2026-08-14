@@ -59,6 +59,7 @@ export async function getPremarketData(symbol: string) {
     // to protect getPremarketChange.ts function from throwing undefined property reads.
     return {
       // Alpaca descriptive properties
+      price: firstBar.OpenPrice ?? null,
       open: firstBar.OpenPrice ?? null,
       high: firstBar.HighPrice ?? null,
       low: firstBar.LowPrice ?? null,

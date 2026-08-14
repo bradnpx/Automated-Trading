@@ -295,6 +295,23 @@ export class StreamPipeline {
     }
 
     if (
+      signal.action === "SELL" &&
+      this.posManager.hasPosition(bar.symbol) &&
+      !this.posManager.hasPendingExit(bar.symbol)
+    ) {
+      this.posManager.markPendingExit(bar.symbol);
+
+      try {
+        await this.executor.closePosition(bar.symbol);
+        this.broadcaster.broadcastSignal(signal);
+      } catch (err) {
+        console.error(`❌ Strategy exit execution error for ${bar.symbol}: `, err);
+        this.posManager.clearPendingExit(bar.symbol);
+      }
+      return;
+    }
+
+    if (
       signal.action === "BUY" &&
       this.posManager.canOpenPosition(bar.symbol)
     ) {
