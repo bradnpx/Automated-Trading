@@ -3,7 +3,8 @@ import React from 'react';
 export default function Nav() {
     const navItems = {
         home: '/',
-        logs: '/logs'
+        logs: '/logs',
+        earnings: '/earnings',
     }
     return (
       <nav className="w-full bg-[#000044]">

@@ -13,7 +13,7 @@ export type Trade = {
 };
 
 export type History = {
-  groupedTrades: any[];
+  groupedTrades: Trade[];
   rawLogs: any[];
 };
 
@@ -61,7 +61,6 @@ export function getStats(rawLogs, groupedTrades, strategy, limit) {
     try {
       winCount += g.isWinner ? 1 : 0;
       totalPnl += g.pnl * g.qty;
-      console.log('pnl', totalPnl, g.pnl * g.qty)
 
       const date = g.openedOn.substring(0, 10);
       if (!tradesPerDay.has(date)) {
@@ -79,7 +78,7 @@ export function getStats(rawLogs, groupedTrades, strategy, limit) {
   const tradeCount = count;
   const avgTrades = tradeCount / Array.from(tradesPerDay).length;
   
-  console.log(tradeCount, totalPnl, totalPnl / tradeCount)
+  // console.log(tradeCount, totalPnl, totalPnl / tradeCount)
   return {
     tradesPerDay: Math.floor(avgTrades),
     tradesToday: todayValue || '?',
@@ -122,8 +121,8 @@ function tradeGroupStats(tradeGroups, watchlist) {
       pnlPct: pnlPct,
       qty: t[0].qty,
       isWinner: isWinner,
-      openedOn: t[0].filled_at,
-      closedOn: t[1].filled_at,
+      openedOn: t[1].filled_at,
+      closedOn: t[0].filled_at,
       tradeLogs: t,
     };
 
