@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "backtest": "../engine/node_modules/.bin/tsx src/cli.ts",
-    "test": "../engine/node_modules/.bin/tsx src/test/run.ts",
+    "backtest": "pnpm --dir ../engine exec tsx ../backtest/src/cli.ts",
+    "test": "pnpm --dir ../engine exec tsx ../backtest/src/test/run.ts",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json"
   },
