@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "backtest": "pnpm --dir ../engine exec tsx ../backtest/src/cli.ts",
-    "download-alpaca": "pnpm --dir ../engine exec tsx src/cli/exportBacktestData.ts",
+    "get-data": "pnpm --dir ../engine exec tsx src/cli/exportBacktestData.ts",
     "test": "pnpm --dir ../engine exec tsx ../backtest/src/test/run.ts",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json"
