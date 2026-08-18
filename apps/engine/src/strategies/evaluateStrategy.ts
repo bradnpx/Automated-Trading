@@ -1,5 +1,11 @@
 import { Bar } from "@my-platform/types";
 import { RSI } from "technicalindicators";
+import { getEasternTimeParts } from "../functions/getTradingSession.js";
+import {
+  resolveStrategyParameters,
+  StrategyParameterOverrides,
+  StrategyParameters,
+} from "./strategyConfig.js";
 import { getPremarketChange } from "../functions/getPremarketChange.js";
 import { ICriterionRule, RuleContext } from "./rules/types.js";
 import {
@@ -40,10 +46,12 @@ export type StrategyCriterion =
 export class EvaluateStrategy {
   private history: Bar[] = [];
   private rulesRegistry: Map<StrategyCriterion, ICriterionRule>;
+  private parameters: StrategyParameters;
 
-  constructor() {
-    // Each instance maintains separate sandbox states for its internal rules
+  constructor(parameters: StrategyParameterOverrides = {}) {
+    // Each instance maintains separate sandbox states for its internal rules.
     this.rulesRegistry = createRulesRegistry();
+    this.parameters = resolveStrategyParameters(parameters);
   }
 
   public hydrate(bars: Bar[]) {
@@ -66,7 +74,7 @@ export class EvaluateStrategy {
     metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
   }> {
     this.history.push(bar);
-    if (this.history.length > 200) this.history.shift();
+    if (this.history.length > 1000) this.history.shift();
 
     const report: Record<string, boolean> = {};
     let premarketCache: any = null;
@@ -88,12 +96,16 @@ export class EvaluateStrategy {
       bar,
       history: this.history,
       prevLow,
+      parameters: this.parameters,
       getPremarket,
       metrics: {
         get rsi() {
           if (rsiCache !== null) return rsiCache;
           const prices = context.history.map((b) => b.close);
-          const rsiValues = RSI.calculate({ values: prices, period: 14 });
+          const rsiValues = RSI.calculate({
+            values: prices,
+            period: context.parameters.rsiPeriod,
+          });
           rsiCache =
             rsiValues && rsiValues.length > 0
               ? rsiValues[rsiValues.length - 1]
@@ -113,12 +125,12 @@ export class EvaluateStrategy {
         },
         get vwapClose() {
           if (vwapCloseCache !== null) return vwapCloseCache;
-          vwapCloseCache = calculateRollingVWAP(context.history, "close");
+          vwapCloseCache = calculateSessionVWAP(context.history, "close");
           return vwapCloseCache;
         },
         get vwapTypical() {
           if (vwapTypicalCache !== null) return vwapTypicalCache;
-          vwapTypicalCache = calculateRollingVWAP(context.history, "typical");
+          vwapTypicalCache = calculateSessionVWAP(context.history, "typical");
           return vwapTypicalCache;
         },
       },
@@ -159,17 +171,24 @@ export class EvaluateStrategy {
 }
 
 // --- Core Helper Functions ---
-function calculateRollingVWAP(
+function calculateSessionVWAP(
   history: Bar[],
   type: "close" | "typical",
 ): number {
-  const recent = history.slice(-20);
-  if (recent.length === 0) return 0;
+  const latestBar = history[history.length - 1];
+  if (!latestBar) return 0;
+
+  const currentSessionDate = getEasternTimeParts(latestBar.timestamp).dateKey;
+  const sessionBars = history.filter(
+    (candidate) =>
+      getEasternTimeParts(candidate.timestamp).dateKey === currentSessionDate,
+  );
+  if (sessionBars.length === 0) return 0;
 
   let totalTypicalPriceVolume = 0;
   let totalVolume = 0;
 
-  for (const b of recent) {
+  for (const b of sessionBars) {
     const price = type === "typical" ? (b.high + b.low + b.close) / 3 : b.close;
     totalTypicalPriceVolume += price * b.volume;
     totalVolume += b.volume;

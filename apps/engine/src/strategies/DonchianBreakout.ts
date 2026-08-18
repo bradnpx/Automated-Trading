@@ -10,11 +10,12 @@ import { IStrategy } from "./IStrategy.js";
  * when it breaks below the prior `period`-bar low. Equal weight across "in" symbols.
  */
 export class DonchianBreakout implements IStrategy {
-  private evaluator = new EvaluateStrategy();
+  private evaluator: EvaluateStrategy;
   private period: number;
 
   private criteria: StrategyCriterion[] = [
-    "isDonchianBreakout" as StrategyCriterion,
+    "isDonchianBreakout",
+    "isDonchianBreakdown",
   ];
 
   constructor(period: number = 20) {
@@ -22,6 +23,7 @@ export class DonchianBreakout implements IStrategy {
       throw new Error("period must be >= 2");
     }
     this.period = period;
+    this.evaluator = new EvaluateStrategy({ donchianPeriod: period });
   }
 
   public hydrate(bars: Bar[], prevLow?: number): void {
@@ -32,14 +34,14 @@ export class DonchianBreakout implements IStrategy {
     try {
       const verification = await this.evaluator.evaluate(bar, this.criteria);
 
-      if (verification.meetsCriteria) {
+      if (verification.report.isDonchianBreakout) {
         return {
           symbol: bar.symbol,
           action: "BUY",
           confidence: 1.0,
           reason: "donchian_in",
         };
-      } else if (verification.report["isDonchianBreakdown" as StrategyCriterion]) {
+      } else if (verification.report.isDonchianBreakdown) {
          return {
           symbol: bar.symbol,
           action: "SELL",

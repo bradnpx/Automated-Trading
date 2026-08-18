@@ -34,7 +34,7 @@ export const StatelessRules: Partial<
   isHoldingVWAP: ({ bar, metrics }) =>
     bar.low > metrics.vwapTypical * (1 - 0.0025),
   isHighRVOL: ({ metrics }) => metrics.rvol >= 5,
-  isInSession: () => getTradingSession() === "market",
+  isInSession: ({ bar }) => getTradingSession(bar.timestamp) === "market",
   isInPriceRange: ({ bar }) => bar.close >= 2 && bar.close <= 20,
   isLowFloat: async ({ bar, metrics }) => {
     const float = await getPublicFreeFloat(bar.symbol);
@@ -97,50 +97,56 @@ export const StatelessRules: Partial<
     );
     return nyHour === 9 && min >= 35 && min <= 55;
   },
-  isDonchianBreakout: ({ bar, history }) => {
-    const period = 20;
-    if (history.length < period) return false;
-    const recentBars = history.slice(-period);
-    const upper = Math.max(...recentBars.map((b) => b.high));
+  isDonchianBreakout: ({ bar, history, parameters }) => {
+    const period = parameters.donchianPeriod;
+    const priorBars = history.slice(-(period + 1), -1);
+    if (priorBars.length < period) return false;
+
+    const upper = Math.max(...priorBars.map((candidate) => candidate.high));
     return bar.close > upper;
   },
-  isDonchianBreakdown: ({ bar, history }) => {
-    const period = 20;
-    if (history.length < period) return false;
-    const recentBars = history.slice(-period);
-    const lower = Math.min(...recentBars.map((b) => b.low));
+  isDonchianBreakdown: ({ bar, history, parameters }) => {
+    const period = parameters.donchianPeriod;
+    const priorBars = history.slice(-(period + 1), -1);
+    if (priorBars.length < period) return false;
+
+    const lower = Math.min(...priorBars.map((candidate) => candidate.low));
     return bar.close < lower;
   },
-  isRsiBelowLower: ({ metrics }) => {
-    return metrics.rsi < 30.0;
+  isRsiBelowLower: ({ metrics, parameters }) => {
+    return metrics.rsi < parameters.rsiLower;
   },
-  isSmaCross: ({ history }) => {
-    const fastPeriod = 20;
-    const slowPeriod = 50;
-    if (history.length < slowPeriod) return false;
+  isSmaCross: ({ history, parameters }) => {
+    const fastPeriod = parameters.smaFastPeriod;
+    const slowPeriod = parameters.smaSlowPeriod;
+    const priorBars = history.slice(-(slowPeriod + 1), -1);
+    if (priorBars.length < slowPeriod) return false;
 
-    const recentFast = history.slice(-fastPeriod);
-    const recentSlow = history.slice(-slowPeriod);
+    const currentFast = averageClose(history.slice(-fastPeriod));
+    const currentSlow = averageClose(history.slice(-slowPeriod));
+    const priorFast = averageClose(priorBars.slice(-fastPeriod));
+    const priorSlow = averageClose(priorBars.slice(-slowPeriod));
 
-    const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
-    const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
-
-    return fastMa > slowMa;
+    return priorFast <= priorSlow && currentFast > currentSlow;
   },
-  isSmaCrossDown: ({ history }) => {
-    const fastPeriod = 20;
-    const slowPeriod = 50;
-    if (history.length < slowPeriod) return false;
+  isSmaCrossDown: ({ history, parameters }) => {
+    const fastPeriod = parameters.smaFastPeriod;
+    const slowPeriod = parameters.smaSlowPeriod;
+    const priorBars = history.slice(-(slowPeriod + 1), -1);
+    if (priorBars.length < slowPeriod) return false;
 
-    const recentFast = history.slice(-fastPeriod);
-    const recentSlow = history.slice(-slowPeriod);
+    const currentFast = averageClose(history.slice(-fastPeriod));
+    const currentSlow = averageClose(history.slice(-slowPeriod));
+    const priorFast = averageClose(priorBars.slice(-fastPeriod));
+    const priorSlow = averageClose(priorBars.slice(-slowPeriod));
 
-    const fastMa = recentFast.reduce((sum, b) => sum + b.close, 0) / fastPeriod;
-    const slowMa = recentSlow.reduce((sum, b) => sum + b.close, 0) / slowPeriod;
-
-    return fastMa < slowMa;
+    return priorFast >= priorSlow && currentFast < currentSlow;
   },
 };
+
+function averageClose(bars: Bar[]): number {
+  return bars.reduce((sum, bar) => sum + bar.close, 0) / bars.length;
+}
 
 export class PdlSweptAndReclaimedRule implements ICriterionRule {
   public pendingSweep = false;
