@@ -1,8 +1,8 @@
-import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { loadHistoricalData } from "./data.js";
-import { BacktestEngine } from "./engine.js";
+import { BacktestEngine, BacktestProgress } from "./engine.js";
 import { renderBacktestMarkdown } from "./report.js";
 import { BacktestConfig } from "./types.js";
 
@@ -18,37 +18,98 @@ const STRATEGY_IDS = [
   "smaCross",
 ] as const;
 
+interface RunInputs {
+  dataPath: string;
+  configPath: string;
+  outputDirectory: string;
+  description: string;
+}
+
 async function main(): Promise<void> {
   const argumentsByName = parseArguments(process.argv.slice(2));
-  const dataPath = requiredArgument(argumentsByName, "data");
-  const configPath = requiredArgument(argumentsByName, "config");
-  const outputDirectory = argumentsByName.get("output") ?? "backtest-results";
+  if (argumentsByName.has("help")) {
+    printHelp();
+    return;
+  }
 
   const inputRoot = process.env.INIT_CWD ?? process.cwd();
+  const runInputs = resolveRunInputs(argumentsByName, inputRoot);
   const [dataSet, config] = await Promise.all([
-    loadHistoricalData(resolve(inputRoot, dataPath)),
-    loadBacktestConfig(resolve(inputRoot, configPath)),
+    loadHistoricalData(runInputs.dataPath),
+    loadBacktestConfig(runInputs.configPath),
   ]);
-  const result = await new BacktestEngine().run(dataSet.bars, config);
-  const resolvedOutputDirectory = resolve(inputRoot, outputDirectory);
 
-  await mkdir(resolvedOutputDirectory, { recursive: true });
+  process.stdout.write(
+    `Starting ${runInputs.description}: ${dataSet.bars.length.toLocaleString()} bars.\n`,
+  );
+  const result = await new BacktestEngine().run(dataSet.bars, config, {
+    onProgress: renderProgress,
+  });
+
+  await mkdir(runInputs.outputDirectory, { recursive: true });
   await Promise.all([
     writeFile(
-      resolve(resolvedOutputDirectory, "result.json"),
+      resolve(runInputs.outputDirectory, "result.json"),
       `${JSON.stringify({ ...result, dataSource: dataSet.source }, null, 2)}\n`,
       "utf8",
     ),
     writeFile(
-      resolve(resolvedOutputDirectory, "report.md"),
+      resolve(runInputs.outputDirectory, "report.md"),
       renderBacktestMarkdown(result),
       "utf8",
     ),
   ]);
 
   process.stdout.write(
-    `Backtest complete: ${result.metrics.closedTrades} closed trades, ${result.metrics.winRatePct.toFixed(2)}% win rate.\nResults: ${resolvedOutputDirectory}\n`,
+    `Backtest complete: ${result.metrics.closedTrades} closed trades, ${result.metrics.winRatePct.toFixed(2)}% win rate.\nResults: ${runInputs.outputDirectory}\n`,
   );
+}
+
+function resolveRunInputs(
+  argumentsByName: Map<string, string>,
+  inputRoot: string,
+): RunInputs {
+  const strategy = argumentsByName.get("strategy");
+  const dataPath = argumentsByName.get("data");
+  const configPath = argumentsByName.get("config");
+  const outputDirectory = argumentsByName.get("output");
+
+  if (strategy) {
+    if (dataPath || configPath) {
+      throw new Error("Use either --strategy or both --data and --config, not both modes");
+    }
+
+    const strategyId = readStrategyId({ strategyId: strategy }, "strategyId");
+    const fixtureDirectory = resolve(
+      inputRoot,
+      "apps",
+      "backtest",
+      "fixtures",
+      strategyId,
+    );
+
+    return {
+      dataPath: resolve(fixtureDirectory, `${strategyId}.csv`),
+      configPath: resolve(fixtureDirectory, `${strategyId}.json`),
+      outputDirectory: resolve(
+        inputRoot,
+        outputDirectory ?? "backtest-results",
+        strategyId,
+      ),
+      description: `fixture strategy ${strategyId}`,
+    };
+  }
+
+  if (!dataPath || !configPath) {
+    throw new Error("Provide --strategy <strategyId>, or provide both --data and --config");
+  }
+
+  return {
+    dataPath: resolve(inputRoot, dataPath),
+    configPath: resolve(inputRoot, configPath),
+    outputDirectory: resolve(inputRoot, outputDirectory ?? "backtest-results"),
+    description: "explicit data and configuration files",
+  };
 }
 
 function parseArguments(values: string[]): Map<string, string> {
@@ -57,6 +118,10 @@ function parseArguments(values: string[]): Map<string, string> {
 
   for (let index = 0; index < commandArguments.length; index += 1) {
     const argument = commandArguments[index];
+    if (argument === "--help") {
+      parsed.set("help", "true");
+      continue;
+    }
     if (!argument.startsWith("--")) {
       throw new Error(`Unexpected argument: ${argument}`);
     }
@@ -66,6 +131,9 @@ function parseArguments(values: string[]): Map<string, string> {
     if (!value || value.startsWith("--")) {
       throw new Error(`Missing value for --${name}`);
     }
+    if (parsed.has(name)) {
+      throw new Error(`--${name} may only be supplied once`);
+    }
 
     parsed.set(name, value);
     index += 1;
@@ -74,13 +142,19 @@ function parseArguments(values: string[]): Map<string, string> {
   return parsed;
 }
 
-function requiredArgument(argumentsByName: Map<string, string>, name: string): string {
-  const value = argumentsByName.get(name);
-  if (!value) {
-    throw new Error(`Missing required argument --${name}`);
-  }
+function renderProgress(progress: BacktestProgress): void {
+  const barWidth = 30;
+  const percent = Math.floor(progress.percentComplete);
+  const filledWidth = Math.round((percent / 100) * barWidth);
+  const bar = `${"#".repeat(filledWidth)}${"-".repeat(barWidth - filledWidth)}`;
 
-  return value;
+  process.stdout.write(
+    `\rReplay [${bar}] ${String(percent).padStart(3)}% (${progress.completedBars.toLocaleString()}/${progress.totalBars.toLocaleString()} bars)`,
+  );
+
+  if (progress.completedBars === progress.totalBars) {
+    process.stdout.write("\n");
+  }
 }
 
 async function loadBacktestConfig(path: string): Promise<BacktestConfig> {
@@ -113,7 +187,10 @@ function readStrategyId(
   key: string,
 ): BacktestConfig["strategyId"] {
   const value = config[key];
-  if (typeof value === "string" && STRATEGY_IDS.includes(value as BacktestConfig["strategyId"])) {
+  if (
+    typeof value === "string" &&
+    STRATEGY_IDS.includes(value as BacktestConfig["strategyId"])
+  ) {
     return value as BacktestConfig["strategyId"];
   }
 
@@ -195,6 +272,10 @@ function readStrategyParameters(value: unknown): BacktestConfig["strategyParamet
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function printHelp(): void {
+  process.stdout.write(`Backtest runner\n\nSimplified fixture run:\n  pnpm --filter backtest backtest -- --strategy smaCross\n\nFixture convention:\n  apps/backtest/fixtures/<strategyId>/<strategyId>.csv\n  apps/backtest/fixtures/<strategyId>/<strategyId>.json\n\nAdvanced explicit-path run:\n  pnpm --filter backtest backtest -- --data data/aapl.csv --config configs/sma.json\n\nOptional:\n  --output <directory>    Result directory; defaults to backtest-results/<strategyId> in fixture mode\n`);
 }
 
 main().catch((error: unknown) => {

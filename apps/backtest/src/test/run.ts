@@ -11,6 +11,7 @@ async function run(): Promise<void> {
   await testTimestampBasedSession();
   await testDonchianUsesPriorBars();
   await testTargetExitAndAttribution();
+  await testProgressCallback();
   await testEndOfDataLiquidationWithoutBracket();
   process.stdout.write("Backtest regression tests passed.\n");
 }
@@ -67,6 +68,23 @@ async function testTargetExitAndAttribution(): Promise<void> {
   assert.equal(result.trades[0].exitReason, "take-profit");
   assert.equal(result.orders.filter((order) => order.status === "filled").length, 2);
   assert.equal(result.metrics.wins, 1);
+}
+
+async function testProgressCallback(): Promise<void> {
+  const updates: Array<{ completedBars: number; totalBars: number; percentComplete: number }> = [];
+  await new BacktestEngine().run(
+    [
+      createBar({ timestamp: timestampAt(0), open: 10, high: 10, low: 10, close: 10 }),
+      createBar({ timestamp: timestampAt(1), open: 10, high: 10, low: 10, close: 10 }),
+    ],
+    baseConfig({ stopLossPct: null, takeProfitPct: null, positionSizingMethod: "equity-fraction" }),
+    { onProgress: (progress) => updates.push(progress) },
+  );
+
+  assert.equal(updates.length, 2);
+  assert.equal(updates[updates.length - 1].completedBars, 2);
+  assert.equal(updates[updates.length - 1].totalBars, 2);
+  assert.equal(updates[updates.length - 1].percentComplete, 100);
 }
 
 async function testEndOfDataLiquidationWithoutBracket(): Promise<void> {
