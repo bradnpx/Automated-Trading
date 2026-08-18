@@ -83,16 +83,39 @@ pnpm --filter backtest download-alpaca -- \\
 
 Use `pnpm --filter backtest download-alpaca -- --help` to see all supported arguments. In PowerShell, use the command on one line or use a backtick (`` ` ``) for multiline continuation rather than a backslash. Availability of a particular feed, interval, or historical depth depends on the permissions of the user's Alpaca market-data subscription.
 
-## Run
+## Run a Strategy Fixture
 
-```bash
-pnpm --filter backtest backtest -- \
-  --data ./data/minute-bars.csv \
-  --config ./configs/biotech-momentum.json \
-  --output ./backtest-results/biotech-momentum
+Each backtest fixture belongs in a strategy-named folder with two files named after that strategy:
+
+```text
+apps/backtest/fixtures/<strategyId>/<strategyId>.csv
+apps/backtest/fixtures/<strategyId>/<strategyId>.json
 ```
 
-The command writes `result.json` (machine-readable, including orders and trades) and `report.md` (human-readable) to the output directory.
+For example, the included fixture is stored as:
+
+```text
+apps/backtest/fixtures/buyAndHold/buyAndHold.csv
+apps/backtest/fixtures/buyAndHold/buyAndHold.json
+```
+
+Run it with only the strategy identifier:
+
+```bash
+pnpm --filter backtest backtest -- --strategy buyAndHold
+```
+
+Replay progress is displayed in the console as completed CSV bars and percentage. By default, the command writes `result.json` and `report.md` to `backtest-results/<strategyId>/`.
+
+### Advanced explicit-path mode
+
+Explicit files remain supported when needed:
+
+```bash
+pnpm --filter backtest backtest -- --data ./data/minute-bars.csv --config ./configs/biotech-momentum.json --output ./backtest-results/biotech-momentum
+```
+
+Use `pnpm --filter backtest backtest -- --help` to view the accepted command options.
 
 ## Validation discipline
 

@@ -19,6 +19,16 @@ import {
 } from "./types.js";
 import { calculateMetrics } from "./metrics.js";
 
+export interface BacktestProgress {
+  completedBars: number;
+  totalBars: number;
+  percentComplete: number;
+}
+
+export interface BacktestRunOptions {
+  onProgress?: (progress: BacktestProgress) => void;
+}
+
 interface RunningState {
   cash: number;
   positions: Map<string, OpenPosition>;
@@ -38,6 +48,7 @@ export class BacktestEngine {
   public async run(
     bars: Bar[],
     config: BacktestConfig,
+    options: BacktestRunOptions = {},
   ): Promise<BacktestResult> {
     if (bars.length === 0) {
       throw new Error("Cannot run a backtest without historical bars");
@@ -64,7 +75,9 @@ export class BacktestEngine {
       turnoverNotional: 0,
     };
 
-    for (const bar of sortedBars) {
+    const progressInterval = Math.max(1, Math.ceil(sortedBars.length / 100));
+
+    for (const [barIndex, bar] of sortedBars.entries()) {
       this.validateChronologicalBar(bar, state.latestPriceBySymbol);
       state.latestPriceBySymbol.set(bar.symbol, bar.close);
       state.processedBars += 1;
@@ -124,6 +137,7 @@ export class BacktestEngine {
         state.exposedBars += 1;
       }
       state.equityCurve.push(this.captureEquityPoint(bar, state));
+      this.reportProgress(barIndex, sortedBars.length, progressInterval, options);
     }
 
     if (resolvedConfig.closeOpenPositionsAtEnd) {
@@ -174,6 +188,28 @@ export class BacktestEngine {
       equityCurve: state.equityCurve,
       metrics,
     };
+  }
+
+  private reportProgress(
+    barIndex: number,
+    totalBars: number,
+    progressInterval: number,
+    options: BacktestRunOptions,
+  ): void {
+    const completedBars = barIndex + 1;
+    const isFinalBar = completedBars === totalBars;
+    if (
+      !options.onProgress ||
+      (!isFinalBar && completedBars % progressInterval !== 0)
+    ) {
+      return;
+    }
+
+    options.onProgress({
+      completedBars,
+      totalBars,
+      percentComplete: (completedBars / totalBars) * 100,
+    });
   }
 
   private getStrategy(
