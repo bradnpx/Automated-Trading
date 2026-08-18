@@ -54,6 +54,35 @@ Create a full JSON configuration file. Percentages are decimal values, so `0.02`
 
 Use `"equity-fraction"` sizing when `stopLossPct` is `null`. Setting either bracket percentage to `null` disables that bracket. `stop-first` is the conservative assumption when one OHLC bar reaches both a stop and target.
 
+## Download Alpaca Historical Data
+
+The downloader fetches historical Alpaca bars and writes the exact CSV schema required by this package. It loads credentials from the repository-root `.env` file. Define:
+
+```text
+APCA_API_KEY_ID=your_alpaca_key
+APCA_API_SECRET_KEY=your_alpaca_secret
+```
+
+Fetch 90 calendar days of AAPL one-minute IEX bars:
+
+```bash
+pnpm --filter backtest download-alpaca -- --symbol AAPL --days 90
+```
+
+The default output is placed under `data/alpaca/`. You may instead use explicit dates and select a destination:
+
+```bash
+pnpm --filter backtest download-alpaca -- \\
+  --symbol AAPL \\
+  --start 2025-01-01 \\
+  --end 2025-04-01 \\
+  --timeframe 1Min \\
+  --feed iex \\
+  --output data/aapl-2025-q1.csv
+```
+
+Use `pnpm --filter backtest download-alpaca -- --help` to see all supported arguments. In PowerShell, use the command on one line or use a backtick (`` ` ``) for multiline continuation rather than a backslash. Availability of a particular feed, interval, or historical depth depends on the permissions of the user's Alpaca market-data subscription.
+
 ## Run
 
 ```bash
