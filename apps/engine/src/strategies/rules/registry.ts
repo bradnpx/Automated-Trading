@@ -142,6 +142,44 @@ export const StatelessRules: Partial<
 
     return priorFast >= priorSlow && currentFast < currentSlow;
   },
+  
+  isVixElevated: ({ metrics }) => {
+    return metrics.vix !== null && metrics.vix >= 20;
+  },
+
+  isGapDay: ({ metrics }) => {
+    return Math.abs(metrics.gapPct) >= 0.75;
+  },
+
+  isExtendedFromVWAP: ({ metrics }) => {
+    let requiredExtension = 1.0;
+    const vix = metrics.vix ?? 20;
+    if (vix >= 40) requiredExtension = 2.5;
+    else if (vix >= 30) requiredExtension = 1.75;
+    else if (vix >= 20) requiredExtension = 1.25;
+
+    return Math.abs(metrics.vwapExtensionPct) >= requiredExtension;
+  },
+
+  isExtremeTick: ({ metrics }) => {
+    return metrics.tick !== null && (metrics.tick <= -1000 || metrics.tick >= 1000);
+  },
+
+  isVWAPReversionSignal: ({ bar, history, metrics }) => {
+    const previousBar = history[history.length - 2];
+    if (!previousBar) return false;
+
+    const movingTowardVWAP = Math.abs(bar.close - metrics.sessionVWAP) < Math.abs(previousBar.close - metrics.sessionVWAP);
+    
+    // Simplification for stateless rule, using bar open/close as proxy for EMA if not available in metrics
+    const bullishReversal = previousBar.close <= previousBar.open && bar.close > bar.open;
+    const bearishReversal = previousBar.close >= previousBar.open && bar.close < bar.open;
+
+    const longReversal = metrics.gapPct <= -0.75 && metrics.vwapExtensionPct < 0 && metrics.tick !== null && metrics.tick <= -1000 && bullishReversal && movingTowardVWAP;
+    const shortReversal = metrics.gapPct >= 0.75 && metrics.vwapExtensionPct > 0 && metrics.tick !== null && metrics.tick >= 1000 && bearishReversal && movingTowardVWAP;
+
+    return longReversal || shortReversal;
+  }
 };
 
 function averageClose(bars: Bar[]): number {

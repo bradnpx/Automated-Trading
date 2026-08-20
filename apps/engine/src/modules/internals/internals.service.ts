@@ -1,26 +1,120 @@
-import { yFinance } from "../../strategies/services/yfinance";
+import axios from "axios";
+import { getEasternTimeParts } from "../../functions/getTradingSession.js";
+
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 
 export class Internals {
-  private api: typeof yFinance = yFinance;
   public vix: number | null = null;
   public tick: number | null = null;
+  public previousCloses: Map<string, number> = new Map();
 
-  async getChart(symbol: string) {
-    try {
-      const result = await this.api.quote(symbol);
-      console.log(result.regularMarketPrice);
-      return result;
-    } catch (err) {
-      console.error(
-        `🚫[MARKET INTERNALS] ${symbol} check failed: ${err as string}`,
-      );
+  private getMinuteStart(timestamp: number): number {
+    return Math.floor(timestamp / 60000) * 60000;
+  }
+
+  async getIndexValue(ticker: string, provider: 'polygon' | 'yahoo' = 'polygon', timestamp?: number): Promise<number | null> {
+    if (provider === 'yahoo') {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1m`;
+      try {
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const result = response.data?.chart?.result?.[0];
+        if (result?.meta?.regularMarketPrice !== undefined) {
+          // Yahoo often returns 0 for indices like C:TICK if market is closed or unsupported, fallback to indicators if possible
+          if (result.meta.regularMarketPrice !== 0) {
+            return result.meta.regularMarketPrice;
+          }
+        }
+      } catch (err) {
+        console.error(`🚫[MARKET INTERNALS] Yahoo request failed for ${ticker}`);
+      }
+      return null;
     }
+
+    if (!POLYGON_API_KEY || !timestamp) return null;
+    const minute = this.getMinuteStart(timestamp);
+    const from = minute - 5 * 60000;
+    const to = minute + 60000;
+    const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/minute/${from}/${to}?adjusted=true&sort=desc&limit=20&apiKey=${POLYGON_API_KEY}`;
+    
+    try {
+      const response = await axios.get(url);
+      if (response.data?.results?.length) {
+        const eligibleBars = response.data.results.filter((r: any) => r.t <= minute + 60000);
+        if (eligibleBars.length > 0) {
+          return eligibleBars[0].c;
+        }
+      }
+    } catch (err: any) {
+      // Catch 403 Forbidden which means the user lacks the Indices package
+      if (err.response?.status === 403) {
+        // Only log once or suppress to avoid spamming the console every 2 seconds
+        if (!this.previousCloses.has(`_403_${ticker}`)) {
+          console.warn(`⚠️ [MARKET INTERNALS] Polygon 403 Forbidden for ${ticker}. You need the Polygon Indices subscription for live TICK data. Suppressing further warnings.`);
+          this.previousCloses.set(`_403_${ticker}`, 1);
+        }
+      } else if (err.response?.status === 429) {
+        if (!this.previousCloses.has(`_429_${ticker}`)) {
+          console.warn(`⚠️ [MARKET INTERNALS] Polygon 429 Too Many Requests for ${ticker}. Rate limit exceeded. Suppressing further warnings.`);
+          this.previousCloses.set(`_429_${ticker}`, 1);
+        }
+      } else {
+        console.error(`🚫[MARKET INTERNALS] Polygon request failed for ${ticker}: ${err.message}`);
+      }
+    }
+    return null;
+  }
+
+  async getPreviousClose(symbol: string): Promise<number | null> {
+    if (this.previousCloses.has(symbol)) {
+      return this.previousCloses.get(symbol) ?? null;
+    }
+    if (!POLYGON_API_KEY) return null;
+    const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+    try {
+      const response = await axios.get(url);
+      if (response.data?.results?.length) {
+        const prevClose = response.data.results[0].c;
+        this.previousCloses.set(symbol, prevClose);
+        return prevClose;
+      }
+    } catch (err) {
+      console.error(`🚫[MARKET INTERNALS] Polygon prev close failed for ${symbol}`);
+    }
+    return null;
   }
 
   async getCharts() {
-    const getVix = await this.getChart("^VIX");
-    this.vix = getVix ? getVix.regularMarketPrice : null;
-    // const tick = await this.getChart("^TICK");
-    // this.tick = tick ? tick.regularMarketPrice : null;
+    const now = Date.now();
+    
+    // Attempt Yahoo Finance first for VIX since Polygon Indices requires an extra subscription
+    let vix = await this.getIndexValue("^VIX", "yahoo");
+    if (vix === null) {
+      // Fallback to Polygon if Yahoo fails
+      vix = await this.getIndexValue("I:VIX", "polygon", now);
+    }
+
+    // TICK is notoriously hard to get for free. Yahoo's C:TICK is often stale or 0.
+    // We will attempt Polygon's I:TICK but suppress the 403 error spam if the user lacks the indices package.
+    let tick = await this.getIndexValue("I:TICK", "polygon", now);
+    if (tick === null) {
+       // If Polygon fails (e.g. 403), we try Yahoo as a last resort, though it may return 0.
+       const yahooTick = await this.getIndexValue("C:TICK", "yahoo");
+       if (yahooTick !== null && yahooTick !== 0) {
+         tick = yahooTick;
+       }
+    }
+    
+    if (vix !== null) this.vix = vix;
+    if (tick !== null) this.tick = tick;
+  }
+
+  getSnapshot() {
+    return {
+      vix: this.vix,
+      tick: this.tick,
+      timestamp: new Date().toISOString()
+    };
   }
 }
+
+export const internalsService = new Internals();

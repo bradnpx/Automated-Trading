@@ -9,6 +9,7 @@ export const SOCKET_EVENTS = {
   ACCOUNT: "account_update",
   SCANNER: "scanner_alert",
   HEALTH: "system_health",
+  INTERNALS: "market_internals",
 } as const;
 
 export const OrderSchema = z.object({
@@ -95,4 +96,10 @@ export interface WatchlistStock {
   currentPosition?: number;
   takeProfitPct?: number;
   stopLossPct?: number;
+}
+
+export interface MarketInternalsPayload {
+  vix: number | null;
+  tick: number | null;
+  timestamp: string;
 }

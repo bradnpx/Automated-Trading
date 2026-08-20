@@ -39,6 +39,11 @@ export function startBackgroundTasks(
           parseFloat(account.equity) / parseFloat(account.last_equity) - 1,
       });
 
+      // Fetch and broadcast market internals (VIX/TICK)
+      const { internalsService } = await import("./modules/internals/internals.service.js");
+      await internalsService.getCharts();
+      broadcaster.broadcastInternals(internalsService.getSnapshot());
+
     } catch (err) {
       console.error("❌ Task Engine Dashboard Broadcast Error:", err);
     }

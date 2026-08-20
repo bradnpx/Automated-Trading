@@ -11,6 +11,11 @@ export interface RuleContext {
         readonly rvol: number;
         readonly vwapClose: number;
         readonly vwapTypical: number;
+        readonly sessionVWAP: number;
+        readonly gapPct: number;
+        readonly vwapExtensionPct: number;
+        readonly vix: number | null;
+        readonly tick: number | null;
     }
     getPremarket: () => Promise<any>;
 }
