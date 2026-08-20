@@ -34,6 +34,10 @@ export class Broadcaster {
     this.io.emit(SOCKET_EVENTS.ACCOUNT, data);
   }
 
+  broadcastInternals(data: any) {
+    this.io.emit(SOCKET_EVENTS.INTERNALS, data);
+  }
+
   broadcastScannerAlert(symbol: string, rvol: number) {
     this.io.emit("scanner_alert", { symbol, rvol, timestamp: new Date() });
   }

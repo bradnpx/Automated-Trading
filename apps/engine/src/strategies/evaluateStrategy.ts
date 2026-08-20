@@ -41,7 +41,12 @@ export type StrategyCriterion =
   | "isDonchianBreakdown"
   | "isRsiBelowLower"
   | "isSmaCross"
-  | "isSmaCrossDown";
+  | "isSmaCrossDown"
+  | "isVixElevated"
+  | "isGapDay"
+  | "isExtendedFromVWAP"
+  | "isExtremeTick"
+  | "isVWAPReversionSignal";
 
 export class EvaluateStrategy {
   private history: Bar[] = [];
@@ -68,6 +73,7 @@ export class EvaluateStrategy {
     bar: Bar,
     criteriaToTest: StrategyCriterion[],
     prevLow: number = 0,
+    marketContext?: { vix: number | null; tick: number | null },
   ): Promise<{
     meetsCriteria: boolean;
     report: Record<string, boolean>;
@@ -91,6 +97,11 @@ export class EvaluateStrategy {
     let rvolCache: number | null = null;
     let vwapCloseCache: number | null = null;
     let vwapTypicalCache: number | null = null;
+    let sessionVWAPCache: number | null = null;
+    let gapPctCache: number | null = null;
+    let vwapExtensionPctCache: number | null = null;
+    let vixCache: number | null = null;
+    let tickCache: number | null = null;
 
     const context: RuleContext = {
       bar,
@@ -133,6 +144,38 @@ export class EvaluateStrategy {
           vwapTypicalCache = calculateSessionVWAP(context.history, "typical");
           return vwapTypicalCache;
         },
+        get sessionVWAP() {
+          if (sessionVWAPCache !== null) return sessionVWAPCache;
+          sessionVWAPCache = calculateSessionVWAP(context.history, "typical");
+          return sessionVWAPCache;
+        },
+        get gapPct() {
+          if (gapPctCache !== null) return gapPctCache;
+          const sessionOpen = context.history.filter(b => getEasternTimeParts(b.timestamp).dateKey === getEasternTimeParts(bar.timestamp).dateKey)[0]?.open;
+          const prevClose = context.history.filter(b => getEasternTimeParts(b.timestamp).dateKey !== getEasternTimeParts(bar.timestamp).dateKey).pop()?.close;
+          if (sessionOpen && prevClose) {
+            gapPctCache = ((sessionOpen - prevClose) / prevClose) * 100;
+          } else {
+            gapPctCache = 0;
+          }
+          return gapPctCache;
+        },
+        get vwapExtensionPct() {
+          if (vwapExtensionPctCache !== null) return vwapExtensionPctCache;
+          const sv = this.sessionVWAP;
+          vwapExtensionPctCache = sv > 0 ? ((bar.close - sv) / sv) * 100 : 0;
+          return vwapExtensionPctCache;
+        },
+        get vix() {
+          if (vixCache !== null) return vixCache;
+          vixCache = marketContext?.vix ?? null;
+          return vixCache;
+        },
+        get tick() {
+          if (tickCache !== null) return tickCache;
+          tickCache = marketContext?.tick ?? null;
+          return tickCache;
+        }
       },
     };
 

@@ -3,15 +3,15 @@ import { useTradingSocket } from "@/context/SocketContext";
 import EmergencyButton from "./EmergencyButton";
 
 export default function AccountSummary() {
-    const { account } = useTradingSocket();
+    const { account, internals } = useTradingSocket();
 
     if (!account) return <div className="h-24 animate-pulse bg-slate-200 rounded-lg" />;
 
     const metrics = [
         { label: 'Total Equity', value: account.equity, isCurrency: true, highlight: true },
-        { label: 'Buying Power', value: account.buying_power, isCurrency: true },
         { label: 'Daily P&L', value: account.day_pl, isCurrency: true, isTrend: true },
-        { label: 'Daily Change', value: account.day_pl_pct * 100, isCurrency: false, suffix: '%'},
+        { label: 'VIX', value: internals?.vix ?? 0, isCurrency: false, hideIfZero: true },
+        { label: 'TICK', value: internals?.tick ?? 0, isCurrency: false, hideIfZero: true },
     ];
 
     return (
@@ -35,12 +35,18 @@ export default function AccountSummary() {
                     : ""
               }`}
             >
-              {m.isCurrency && "$"}
-              {m.value.toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-                minimumFractionDigits: 2,
-              })}
-              {m.suffix}
+              {m.hideIfZero && m.value === 0 ? (
+                "--"
+              ) : (
+                <>
+                  {m.isCurrency && "$"}
+                  {m.value.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                    minimumFractionDigits: 2,
+                  })}
+                  {m.suffix}
+                </>
+              )}
             </p>
           </div>
         ))}

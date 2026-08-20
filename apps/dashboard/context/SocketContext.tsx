@@ -28,6 +28,7 @@ interface SocketContextValue {
   alerts: any[];
   equityHistory: { time: string; equity: number }[];
   engineStatus: "ACTIVE" | "KILLED";
+  internals: { vix: number | null; tick: number | null; timestamp: string } | null;
 }
 
 const SocketContext = createContext<SocketContextValue | null>(null);
@@ -45,6 +46,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [engineStatus, setEngineStatus] = useState<"ACTIVE" | "KILLED">(
     "ACTIVE",
   );
+  const [internals, setInternals] = useState<{ vix: number | null; tick: number | null; timestamp: string } | null>(null);
 
   useEffect(() => {
     const socket = io("http://localhost:4000", {
@@ -95,6 +97,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setAlerts((prev) => [data, ...prev].slice(0, 5));
     });
 
+    socket.on(SOCKET_EVENTS.INTERNALS, (data: any) => {
+      setInternals(data);
+    });
+
     socket.on(SOCKET_EVENTS.ACCOUNT, (data: AccountPayload) => {
       setAccount(data);
       setEquityHistory((prev) => {
@@ -126,6 +132,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     alerts,
     equityHistory,
     engineStatus,
+    internals,
   };
 
   return (
