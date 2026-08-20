@@ -12,8 +12,25 @@ export class Internals {
     return Math.floor(timestamp / 60000) * 60000;
   }
 
-  async getIndexValue(ticker: string, timestamp: number): Promise<number | null> {
-    if (!POLYGON_API_KEY) return null;
+  async getIndexValue(ticker: string, provider: 'polygon' | 'yahoo' = 'polygon', timestamp?: number): Promise<number | null> {
+    if (provider === 'yahoo') {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1m`;
+      try {
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const result = response.data?.chart?.result?.[0];
+        if (result?.meta?.regularMarketPrice !== undefined) {
+          // Yahoo often returns 0 for indices like C:TICK if market is closed or unsupported, fallback to indicators if possible
+          if (result.meta.regularMarketPrice !== 0) {
+            return result.meta.regularMarketPrice;
+          }
+        }
+      } catch (err) {
+        console.error(`🚫[MARKET INTERNALS] Yahoo request failed for ${ticker}`);
+      }
+      return null;
+    }
+
+    if (!POLYGON_API_KEY || !timestamp) return null;
     const minute = this.getMinuteStart(timestamp);
     const from = minute - 5 * 60000;
     const to = minute + 60000;
@@ -27,8 +44,13 @@ export class Internals {
           return eligibleBars[0].c;
         }
       }
-    } catch (err) {
-      console.error(`🚫[MARKET INTERNALS] Polygon request failed for ${ticker}`);
+    } catch (err: any) {
+      // Catch 403 Forbidden which means the user lacks the Indices package
+      if (err.response?.status === 403) {
+        console.error(`🚫[MARKET INTERNALS] Polygon 403 Forbidden for ${ticker}. Ensure you have the Polygon Indices subscription.`);
+      } else {
+        console.error(`🚫[MARKET INTERNALS] Polygon request failed for ${ticker}: ${err.message}`);
+      }
     }
     return null;
   }
@@ -55,11 +77,20 @@ export class Internals {
   async getCharts() {
     const now = Date.now();
     
-    // Polygon supports VIX (I:VIX). For TICK, they don't natively support NYSE TICK but often traders map to an alternative or have a specialized data feed. We'll use I:VIX and I:TICK as requested in the pasted content, acknowledging that I:TICK might not return data on standard Polygon plans without the indices package.
-    const [vix, tick] = await Promise.all([
-      this.getIndexValue("I:VIX", now),
-      this.getIndexValue("I:TICK", now)
-    ]);
+    // Attempt Yahoo Finance first for VIX since Polygon Indices requires an extra subscription
+    let vix = await this.getIndexValue("^VIX", "yahoo");
+    if (vix === null) {
+      // Fallback to Polygon if Yahoo fails
+      vix = await this.getIndexValue("I:VIX", "polygon", now);
+    }
+
+    // TICK is notoriously hard to get for free. Yahoo's C:TICK is often stale or 0.
+    // We'll try Polygon's I:TICK (which requires the indices sub) and fallback to Yahoo if we have to.
+    let tick = await this.getIndexValue("I:TICK", "polygon", now);
+    if (tick === null) {
+       // Optional fallback to a proxy or just leave as null if unavailable
+       // tick = await this.getIndexValue("C:TICK", "yahoo");
+    }
     
     if (vix !== null) this.vix = vix;
     if (tick !== null) this.tick = tick;
