@@ -145,9 +145,9 @@ export class EvaluateStrategy {
         console.warn(`Warning: Criterion "${criterion}" is not supported.`);
         report[criterion] = false;
       }
-      console.log(
-        `${bar.symbol} - ${criterion}: ${report[criterion] ? "✅" : "❌"}`,
-      );
+      // console.log(
+      //   `${bar.symbol} - ${criterion}: ${report[criterion] ? "✅" : "❌"}`,
+      // );
     }
 
     const meetsCriteria = criteriaToTest.every((key) => report[key] === true);
