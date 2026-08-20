@@ -47,7 +47,16 @@ export class Internals {
     } catch (err: any) {
       // Catch 403 Forbidden which means the user lacks the Indices package
       if (err.response?.status === 403) {
-        console.error(`🚫[MARKET INTERNALS] Polygon 403 Forbidden for ${ticker}. Ensure you have the Polygon Indices subscription.`);
+        // Only log once or suppress to avoid spamming the console every 2 seconds
+        if (!this.previousCloses.has(`_403_${ticker}`)) {
+          console.warn(`⚠️ [MARKET INTERNALS] Polygon 403 Forbidden for ${ticker}. You need the Polygon Indices subscription for live TICK data. Suppressing further warnings.`);
+          this.previousCloses.set(`_403_${ticker}`, 1);
+        }
+      } else if (err.response?.status === 429) {
+        if (!this.previousCloses.has(`_429_${ticker}`)) {
+          console.warn(`⚠️ [MARKET INTERNALS] Polygon 429 Too Many Requests for ${ticker}. Rate limit exceeded. Suppressing further warnings.`);
+          this.previousCloses.set(`_429_${ticker}`, 1);
+        }
       } else {
         console.error(`🚫[MARKET INTERNALS] Polygon request failed for ${ticker}: ${err.message}`);
       }
@@ -85,11 +94,14 @@ export class Internals {
     }
 
     // TICK is notoriously hard to get for free. Yahoo's C:TICK is often stale or 0.
-    // We'll try Polygon's I:TICK (which requires the indices sub) and fallback to Yahoo if we have to.
+    // We will attempt Polygon's I:TICK but suppress the 403 error spam if the user lacks the indices package.
     let tick = await this.getIndexValue("I:TICK", "polygon", now);
     if (tick === null) {
-       // Optional fallback to a proxy or just leave as null if unavailable
-       // tick = await this.getIndexValue("C:TICK", "yahoo");
+       // If Polygon fails (e.g. 403), we try Yahoo as a last resort, though it may return 0.
+       const yahooTick = await this.getIndexValue("C:TICK", "yahoo");
+       if (yahooTick !== null && yahooTick !== 0) {
+         tick = yahooTick;
+       }
     }
     
     if (vix !== null) this.vix = vix;
