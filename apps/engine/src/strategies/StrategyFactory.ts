@@ -27,7 +27,7 @@ export class StrategyFactory {
   private static registry: Record<StrategyIdentifier, StrategyCreator> = {
     basicStrategy: () => new BasicStrategy(),
     pdlSweepVWAPReclaim: () => new PDLSweepVWAPReclaim(),
-    dayTradeMicroScalp: () => new DayTradeMicroScalp(),
+    dayTradeMicroScalp: (parameters) => new DayTradeMicroScalp(parameters),
     biotechMomentum: () => new BiotechMomentumStrategy(),
     fifteenMinMorningBounce: () => new FifteenMinMorningBounce(),
     buyAndHold: () => new BuyAndHold(),

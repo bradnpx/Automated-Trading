@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Bar } from "@my-platform/types";
 
 import getTradingSession from "../../../engine/src/functions/getTradingSession.js";
+import { DayTradeMicroScalp } from "../../../engine/src/strategies/DayTradeMicroScalp.js";
 import { DonchianBreakout } from "../../../engine/src/strategies/DonchianBreakout.js";
 import { BacktestEngine } from "../engine.js";
 import { BacktestConfig } from "../types.js";
@@ -10,6 +11,7 @@ import { BacktestConfig } from "../types.js";
 async function run(): Promise<void> {
   await testTimestampBasedSession();
   await testDonchianUsesPriorBars();
+  await testDayTradeMicroScalpEntryQualityGate();
   await testTargetExitAndAttribution();
   await testProgressCallback();
   await testEndOfDataLiquidationWithoutBracket();
@@ -53,6 +55,77 @@ async function testDonchianUsesPriorBars(): Promise<void> {
   );
 
   assert.equal(signal.action, "BUY", "A close above prior highs must trigger Donchian entry");
+}
+
+async function testDayTradeMicroScalpEntryQualityGate(): Promise<void> {
+  const history = Array.from({ length: 20 }, (_, index) =>
+    createBar({
+      timestamp: timestampAt(index),
+      open: index % 2 === 0 ? 9.98 : 10.04,
+      high: 10.06,
+      low: 9.96,
+      close: index % 2 === 0 ? 10.04 : 9.98,
+      volume: 100,
+    }),
+  );
+
+  const parameters = { rsiUpper: 99 };
+  const qualifyingStrategy = new DayTradeMicroScalp(parameters);
+  qualifyingStrategy.hydrate(history);
+  const qualifyingSignal = await qualifyingStrategy.evaluateStrategy(
+    createBar({
+      timestamp: timestampAt(20),
+      open: 10.01,
+      high: 10.14,
+      low: 10,
+      close: 10.1,
+      volume: 300,
+    }),
+  );
+
+  assert.equal(
+    qualifyingSignal.action,
+    "BUY",
+    "A liquid, strong opening candle holding near VWAP should qualify",
+  );
+
+  const lowVolumeStrategy = new DayTradeMicroScalp(parameters);
+  lowVolumeStrategy.hydrate(history);
+  const lowVolumeSignal = await lowVolumeStrategy.evaluateStrategy(
+    createBar({
+      timestamp: timestampAt(20),
+      open: 10.01,
+      high: 10.14,
+      low: 10,
+      close: 10.1,
+      volume: 100,
+    }),
+  );
+
+  assert.equal(
+    lowVolumeSignal.action,
+    "HOLD",
+    "A candle without relative-volume confirmation must be rejected",
+  );
+
+  const lateSessionStrategy = new DayTradeMicroScalp(parameters);
+  lateSessionStrategy.hydrate(history);
+  const lateSessionSignal = await lateSessionStrategy.evaluateStrategy(
+    createBar({
+      timestamp: timestampAt(100),
+      open: 10.01,
+      high: 10.14,
+      low: 10,
+      close: 10.1,
+      volume: 300,
+    }),
+  );
+
+  assert.equal(
+    lateSessionSignal.action,
+    "HOLD",
+    "Entries outside the defined opening window must be rejected",
+  );
 }
 
 async function testTargetExitAndAttribution(): Promise<void> {

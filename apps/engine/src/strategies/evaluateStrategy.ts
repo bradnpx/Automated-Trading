@@ -26,6 +26,8 @@ export type StrategyCriterion =
   | "isInPriceRange"
   | "isInSession"
   | "isLowFloat"
+  | "isMicroScalpNotExtended"
+  | "isMicroScalpRelativeVolume"
   | "isNotExtended"
   | "isPdlSweptAndReclaimed"
   | "isPennyStock"

@@ -30,14 +30,16 @@ Create a full JSON configuration file. Percentages are decimal values, so `0.02`
 
 ```json
 {
-  "strategyId": "biotechMomentum",
+  "strategyId": "dayTradeMicroScalp",
   "strategyParameters": {
     "rsiPeriod": 14,
     "rsiLower": 30,
     "rsiUpper": 70,
     "smaFastPeriod": 20,
     "smaSlowPeriod": 50,
-    "donchianPeriod": 20
+    "donchianPeriod": 20,
+    "microScalpMaxVwapExtensionPct": 0.015,
+    "microScalpMinRelativeVolume": 1.5
   },
   "initialCash": 100000,
   "riskPerTrade": 0.01,
@@ -53,6 +55,8 @@ Create a full JSON configuration file. Percentages are decimal values, so `0.02`
 ```
 
 Use `"equity-fraction"` sizing when `stopLossPct` is `null`. Setting either bracket percentage to `null` disables that bracket. `stop-first` is the conservative assumption when one OHLC bar reaches both a stop and target.
+
+For `dayTradeMicroScalp`, `microScalpMaxVwapExtensionPct` limits entries to closes no more than 1.5% above session VWAP by default, while `microScalpMinRelativeVolume` requires at least 1.5× the mean volume of the prior 20 one-minute bars. The strategy also restricts entries to 09:45–10:30 Eastern Time, requires a strong bullish candle with follow-through, and rejects RSI values at or above `rsiUpper`. Tune these values only against a training period and confirm them in a held-out period.
 
 ## Download Alpaca Historical Data
 

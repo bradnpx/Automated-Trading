@@ -40,6 +40,13 @@ export const StatelessRules: Partial<
     const float = await getPublicFreeFloat(bar.symbol);
     return float !== null && float < 25000000;
   },
+  isMicroScalpNotExtended: ({ bar, metrics, parameters }) =>
+    metrics.vwapTypical > 0 &&
+    (bar.close - metrics.vwapTypical) / metrics.vwapTypical <=
+      parameters.microScalpMaxVwapExtensionPct,
+  isMicroScalpRelativeVolume: ({ history, metrics, parameters }) =>
+    history.length >= 21 &&
+    metrics.rvol >= parameters.microScalpMinRelativeVolume,
   isNotExtended: ({ bar, metrics }) =>
     (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.04,
   isPennyStock: ({ bar }) => bar.close >= 1 && bar.close <= 10,
@@ -49,7 +56,7 @@ export const StatelessRules: Partial<
     return data ? data.percentageChange >= 5 : false;
   },
   isRollingVolumeSurge: ({ metrics }) => metrics.rvol >= 4.0,
-  isRsiBelow70: ({ metrics }) => metrics.rsi < 70,
+  isRsiBelow70: ({ metrics, parameters }) => metrics.rsi < parameters.rsiUpper,
   isStrongBullCandle: ({ bar }) => {
     const body = Math.abs(bar.close - bar.open);
     const range = bar.high - bar.low;

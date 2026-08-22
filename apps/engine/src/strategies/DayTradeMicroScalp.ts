@@ -1,18 +1,27 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
 import { IStrategy } from "./IStrategy.js";
+import { StrategyParameterOverrides } from "./strategyConfig.js";
 
 export class DayTradeMicroScalp implements IStrategy {
-  private evaluator = new EvaluateStrategy();
+  private evaluator: EvaluateStrategy;
 
-  // Updated criteria: we removed overly restrictive/broken checks like isLowFloat, isPennyStock,
-  // and isHighRVOL (which fail due to scanner hydration issues) and focus on pure price action.
+  // Favor confirmed opening momentum over every bullish VWAP hold. These checks use
+  // only hydrated bar history, not external float or scanner metadata.
   private criteria: StrategyCriterion[] = [
-    "isBullish",
-    "isHoldingVWAP",
-    "isNotExtended",
     "isInPriceRange",
+    "isWithinOpeningWindow",
+    "isHoldingVWAP",
+    "isStrongBullCandle",
+    "isBullishFollowthrough",
+    "isRsiBelow70",
+    "isMicroScalpRelativeVolume",
+    "isMicroScalpNotExtended",
   ];
+
+  constructor(parameters: StrategyParameterOverrides = {}) {
+    this.evaluator = new EvaluateStrategy(parameters);
+  }
 
   public hydrate(bars: Bar[], prevLow?: number) {
     this.evaluator.hydrate(bars);
@@ -36,8 +45,8 @@ export class DayTradeMicroScalp implements IStrategy {
         action,
         confidence,
         reason: meetsCriteria
-          ? `CONFIRMED: Bullish candle holding VWAP ($${metrics.vwap.toFixed(2)}) and not extended.`
-          : `WAITING: Criteria validation triggers unfulfilled.`,
+          ? `CONFIRMED: Opening momentum holds VWAP ($${metrics.vwap.toFixed(2)}) with ${metrics.rvol.toFixed(2)}x relative volume.`
+          : `WAITING: Opening momentum and liquidity filters are not all confirmed.`,
       };
     } catch (error) {
       console.error(
