@@ -1,1 +1,1 @@
-import { alpaca } from "@/apps/engine/src/strategies/services/alpaca";
+import { alpaca } from "@/apps/engine/src/services/alpaca";

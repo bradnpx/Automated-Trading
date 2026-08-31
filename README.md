@@ -2,6 +2,8 @@
 
 The Automated Trading Application is a high-velocity, multi-strategy algorithmic trading platform. It connects directly to the [Alpaca Trade API](https://alpaca.markets/) for real-time market data streaming and order execution, supplemented by [Polygon.io](https://polygon.io/) for pre-market volume and supply discovery. The system is architected as a monorepo containing a real-time TypeScript trading engine, an interactive Next.js dashboard, and shared packages for types and UI components.
 
+### NOTE: This is a work in progress.
+
 ---
 
 ## Operating the Application
@@ -23,7 +25,6 @@ POLYGON_API_KEY=your_polygon_api_key
 ALPHA_VANTAGE_API_KEY=your_alpha_vantage_api_key
 
 # Strategy Watchlist Configurations
-STRATEGY_001_NAME="Basic Momentum"
 STRATEGY_001_ID="basicStrategy"
 STRATEGY_001_WATCHLIST="AAPL,MSFT,TSLA"
 ```
@@ -40,7 +41,13 @@ This command parallelizes the execution of the following subsystems:
 - **Trading Engine**: Starts the TypeScript trading core, connecting to Alpaca WebSockets and exposing an Express control API on port `4001` and a Socket.IO server on port `4000`.
 - **Web Dashboard**: Launches the Next.js frontend on `http://localhost:3000` to visualize streaming telemetry, positions, and health.
 
-### Deployment with Docker
+
+You can spin up either of these individually with the following commands:
+```bash
+pnpm --filter engine dev
+pnpm --filter dashboard dev
+```
+### Deployment with Docker (WIP)
 
 The application includes a `docker-compose.yml` configuration for containerized environments. To build and run the services in production mode:
 
@@ -66,13 +73,20 @@ The trading engine is modularized into several decoupled layers, each responsibl
 | **Background Tasks** | Polling loops that sync account state and verify exit rules. | `tasks.ts` |
 
 ### Discovery (Pre-Market Scanner)
-The application initiates each trading session by executing a discovery scan. It queries Alpaca's free market movers screener to isolate the top gainers, filters them based on low-price momentum (typically $1.00 to $7.00 with a minimum 10% intraday gain), and then queries Polygon's API to analyze public free-float metrics. Tickers passing these supply filters are dynamically injected into the active trading watchlists.
+The application initiates each trading session by executing a discovery scan. It queries Alpaca's free market movers screener to isolate the top gainers, filters them based on low-price momentum (typically $2.00 to $20.00 with a minimum 10% intraday gain), and then queries Polygon's API to analyze public free-float metrics. Tickers passing these supply filters are dynamically injected into the active trading watchlists.
 
 ### Stream Pipeline
 The stream pipeline is the real-time coordinator of the engine. It connects to Alpaca's high-frequency market data stream to receive 1-minute bars and Alpaca's trade execution stream to receive order status updates. When a new bar arrives, the pipeline passes it through a series of sequential filters: checking exit conditions first, broadcasting telemetry next, updating indicators, and finally evaluating new entry setups.
 
 ### Strategy Engine & Warmup
 At startup, the engine executes a warmup sequence. It pulls approximately three hours of historical 1-minute bars via Alpaca's historical data API for all watched symbols. These bars are parsed using Zod schemas and used to hydrate technical indicators (such as RSI, VWAP, and Relative Volume) inside individual strategy instances. Strategies are instantiated dynamically via a central `StrategyFactory` based on configuration mapping.
+
+### Strategies
+Strategies define a set of criteria to signal to the engine whether or not to buy the stock. These criteria are written as individual functions to check key metrics, such as price range, momentum, bounce and pullback. These functions can be expanded to improve your strategy.
+
+The `.env` file lists all ACTIVE strategies by name, stocks to trade, stop-loss and take-profit margins, total equity risk, and age of trade. You must add your strategy name symbols to activate the strategy. The rest of the values are optional and have defaults, though it is recommended to set your own SL/TP margins and total equity for all strategies
+
+*Todo:* I am currently working on a way to optimize this as it scales up.
 
 ### Position Manager & Risk Controls
 The Position Manager maintains an in-memory representation of the active portfolio, synchronized periodically with the broker. It monitors open positions against hardcoded or strategy-specific stop-loss (SL) and take-profit (TP) thresholds. It also tracks the "high-water mark" for each position to support trailing stop logic and manages temporary locks to prevent duplicate order submissions.
@@ -84,7 +98,7 @@ The Executor is a clean wrapper around the Alpaca REST API. It handles the mecha
 
 ## Web Dashboard Sections
 
-The dashboard is built as a single-page Next.js application that establishes a persistent WebSocket connection to the trading engine. It is divided into several visual modules designed to provide immediate situational awareness.
+The dashboard is built as a Next.js application that establishes a persistent WebSocket connection to the trading engine. It is divided into several visual modules designed to provide immediate situational awareness.
 
 ```
 +----------------------------------------------------------------------------------+

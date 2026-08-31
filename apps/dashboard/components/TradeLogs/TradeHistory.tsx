@@ -69,6 +69,7 @@ export default function TradeHistory({ history }: TradeHistoryProps) {
       <table className="w-full text-[14px] text-left">
         <thead className="text-slate-500 uppercase text-[12px] sticky top-0">
           <tr>
+            <th className="px-4 py-2">#</th>
             <th className="px-4 py-2">Time</th>
             <th className="px-4 py-2">Symbol</th>
             <th className="px-4 py-2">Qty</th>
@@ -87,7 +88,7 @@ export default function TradeHistory({ history }: TradeHistoryProps) {
                   className="border-t border-slate-50 hover:bg-slate-50 h-2"
                 >
                   {/* <LogItem key={i} trade={t} limit={limit}></LogItem> */}
-                  <LogItem key={i} trade={t}></LogItem>
+                  <LogItem key={i+1} id={i+1} trade={t}></LogItem>
                 </tr>
               ) : (
                 <></>

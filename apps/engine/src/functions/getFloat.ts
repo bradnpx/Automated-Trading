@@ -42,7 +42,7 @@ export async function getPublicFreeFloat(
     const reason = response.statusCode === 429 ? '429: Too many requests.' : response.statusCode;
     console.error(
       `[Polygon API Error] Failed to fetch float for ${ticker}:`,
-      reason,
+      error,
     );
     return null;
   }

@@ -29,6 +29,7 @@ const columns = [
   columnHelper.accessor("unrealized_pl", {
     header: "P&L ($)",
     cell: (info) => {
+      // console.log(info.row);
       const val = parseFloat(info.getValue());
       const qty = parseFloat(info.row.original.qty) || 0;
       // console.log(columns[1]);
@@ -55,40 +56,44 @@ const columns = [
       );
     },
   }),
-  columnHelper.display({
-    id: 'exits',
-    header: 'SL / TP Levels',
-    cell: info => {
-        const entry = parseFloat(info.row.original.avg_entry_price);
-        const sl = entry * 0.98;
-        const tp = entry * 1.04;
-        return (
-            <div className="text-[10px] space-y-1">
-                <div className="text-green-500 font-mono">TP: ${tp.toFixed(2)}</div>
-                <div className="text-red-500 font-mono">SL: ${sl.toFixed(2)}</div>
-            </div>
-        )
-    }
+  columnHelper.accessor("age", {
+    header: "Age",
+    cell: (info) => `$${parseFloat(info.getValue()).toFixed(2)}`,
   }),
-  columnHelper.display({
-    id: 'trailing_stop',
-    header: 'Current Floor',
-    cell: info => {
-        const row = info.row.original;
-        const entry = parseFloat(row.avg_entry_price)
-        const current = parseFloat(row.current_price)
+  // columnHelper.display({
+  //   id: 'exits',
+  //   header: 'SL / TP Levels',
+  //   cell: info => {
+  //       const entry = parseFloat(info.row.original.avg_entry_price);
+  //       const sl = entry * 0.98;
+  //       const tp = entry * 1.04;
+  //       return (
+  //           <div className="text-[10px] space-y-1">
+  //               <div className="text-green-500 font-mono">TP: ${tp.toFixed(2)}</div>
+  //               <div className="text-red-500 font-mono">SL: ${sl.toFixed(2)}</div>
+  //           </div>
+  //       )
+  //   }
+  // }),
+  // columnHelper.display({
+  //   id: 'trailing_stop',
+  //   header: 'Current Floor',
+  //   cell: info => {
+  //       const row = info.row.original;
+  //       const entry = parseFloat(row.avg_entry_price)
+  //       const current = parseFloat(row.current_price)
 
-        const floor = current * 0.985; //1.5% trail
+  //       const floor = current * 0.985; //1.5% trail
 
-        return (
-            <div className="flex flex-col">
-                <span className={`text-xs font-mono ${current > entry ? 'text-green-600' : 'text-slate-400'}`}>
-                    Floor: ${floor.toFixed(2)}
-                </span>
-            </div>
-        )
-    }
-  })
+  //       return (
+  //           <div className="flex flex-col">
+  //               <span className={`text-xs font-mono ${current > entry ? 'text-green-600' : 'text-slate-400'}`}>
+  //                   Floor: ${floor.toFixed(2)}
+  //               </span>
+  //           </div>
+  //       )
+  //   }
+  // })
 ];
 
 export default function PortfolioTable() {

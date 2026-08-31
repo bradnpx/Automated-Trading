@@ -2,20 +2,26 @@ import { runPreMarketScanner } from "./scanners/preMarketScanner";
 
 export class Scanner {
   private volumeHistory: Map<string, number[]> = new Map();
+  private priceHistory: Map<string, number[]> = new Map();
   private readonly WINDOW = 20;
 
   public processBar(
     symbol: string,
     volume: number,
-    price: number,
+    price: number[],
   ): { isHot: boolean; rvol: number; isTradable: boolean } {
     // Get volume history
     if (!this.volumeHistory.has(symbol)) {
       this.volumeHistory.set(symbol, []);
     }
+    if (!this.priceHistory.has(symbol)) {
+      this.priceHistory.set(symbol, []);
+    }
     const history = this.volumeHistory.get(symbol)!;
+    const priceHis = this.priceHistory.get(symbol)!;
 
-    const isTradable = price >= 1 && price <= 10;
+    const isTradable = (price[1] >= 2 && price[1] <= 20) && (price[1] >= (price[0] / 10));
+    // console.log(`📈 Scanning symbol ${symbol} - open: ${price[0]} current: ${price[1]}`)
 
     if (history.length < this.WINDOW) {
       history.push(volume);
@@ -30,7 +36,6 @@ export class Scanner {
     history.shift();
 
     // Threshold for promotion: 5.0x Relative Volume
-    // return { isHot: rvol >= 5.0, rvol };
     return { isHot: rvol >= 5 && volume >= 50_000, rvol, isTradable };
   }
 

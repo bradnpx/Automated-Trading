@@ -258,8 +258,8 @@ export class StreamPipeline {
 
   private async handleScannerAndWarmup(bar: Bar): Promise<void> {
     if (!this.scanner) return;
-
-    const scan = this.scanner.processBar(bar.symbol, bar.volume, bar.close);
+    
+    const scan = this.scanner.processBar(bar.symbol, bar.volume, [bar.open, bar.close]);
 
     // CHANGED: Cross-references against MASTER_WATCHLIST to prevent duplicates
     if (scan.isHot && scan.isTradable && !MASTER_WATCHLIST.has(bar.symbol)) {

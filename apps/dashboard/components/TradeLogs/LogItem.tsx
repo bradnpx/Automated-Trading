@@ -1,15 +1,15 @@
 import { Trade } from "@/lib/fetchTradeHistory";
 
 interface Props {
-    key: number;
+    id: number;
     trade: Trade;
     limit?: number;
 }
 
-export default function LogItem(item: Props) {
-    const trade = item.trade;
+export default function LogItem({id, trade}: {id: number; trade: Trade}) {
   return (
     <>
+      <td className="px-4 py-2 text-slate-400">{id}</td>
       <td className="px-4 py-2 text-slate-400">
         {trade.openedOn
           ? new Date(trade.openedOn).toLocaleDateString() +

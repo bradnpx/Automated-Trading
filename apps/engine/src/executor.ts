@@ -31,12 +31,12 @@ export class Executor {
       return order;
     } catch (err) {
       if (err.response.data.message.includes('fractionable')) {
-        console.error(`🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, roudning up and retrying...`);   
-        const rounded = Math.ceil(qty)
+        console.error(`🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, rounding up and retrying...`);   
+        const rounded: number = Math.ceil(qty)
         try {
           const order = await this.alpaca.createOrder({
             symbol,
-            rounded,
+            qty: rounded,
             side: "buy",
             type: "market",
             time_in_force: "day",

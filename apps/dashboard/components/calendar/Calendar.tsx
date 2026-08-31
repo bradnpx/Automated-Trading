@@ -56,7 +56,7 @@ export default function Calendar({ trades }: Trade[]) {
       transactions: 0,
     };
     const addition: DayEarning = {
-      amount: +(t.pnl * t.qty).toFixed(2),
+      amount: current.amount + (t.pnl * t.qty),
       transactions: current.transactions + 1,
     };
 
