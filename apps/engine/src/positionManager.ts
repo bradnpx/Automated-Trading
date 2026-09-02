@@ -103,7 +103,7 @@ export class PositionManager {
   canOpenPosition(symbol: string): boolean {
     const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
     const isBlacklisted = blacklistedSymbols.includes(symbol);
-    
+
     if (isBlacklisted) {
       console.log(
         `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
@@ -188,30 +188,42 @@ export class PositionManager {
       return ((currentPrice - entryPrice) / entryPrice) * 100;
     }
 
-    function didPassPNLThresholds(): boolean {
+    function didPassPNLThresholds(
+      symbol: typeof pos,
+      defaults: number[],
+    ): "stop-loss" | "take-profit" | null {
+      if (!symbol) {
+        throw new Error("🚫ERROR: symbol not found in MASTER_WATCHLIST, fix immediately");
+      }
+      const defaultRisk = {
+        takeProfitPct: defaults,
+        stopLossPct: -defaults,
+      };
+
+      const takeProfit = symbol.takeProfitPct || defaultRisk.takeProfitPct
+      const stopLoss = symbol.stopLossPct || defaultRisk.stopLossPct
+
       const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
-      const customRisk = MASTER_WATCHLIST.get(symbol)
-        ? {
-            takeProfitPct:
-              MASTER_WATCHLIST.get(symbol)?.takeProfitPct ||
-              this.DEFAULT_TAKE_PROFIT_PCT,
-            stopLossPct:
-              -MASTER_WATCHLIST.get(symbol)?.stopLossPct ||
-              -this.DEFAULT_STOP_LOSS_PCT,
-          }
-        : { takeProfitPct: 4, stopLossPct: -2 };
-
-      if (pnlPct <= customRisk.stopLossPct) {
-        return true;
+      // console.log(`${symbol} pnlPct: ${pnlPct}, sl: ${stopLoss}, tp:${takeProfit}`)
+      if (pnlPct <= -stopLoss) {
+        return "stop-loss";
       }
 
-      if (pnlPct >= customRisk.takeProfitPct) {
-        return true;
+      if (pnlPct >= takeProfit) {
+        return "take-profit";
       }
 
-      return false;
+      return null;
     }
 
+    function didExpire(expiration: number | undefined, tradeId: symbol | undefined) {
+      if (!expiration || !tradeId) {
+        return null;
+      }
+      console.log('didExpire')
+    }
+
+    console.log(pos)
     const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
     const currentHWM = this.highWaterMarks.get(symbol) || entryPrice;
     if (currentPrice > currentHWM) {
@@ -219,32 +231,18 @@ export class PositionManager {
       console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
     }
 
-    const strategy = MASTER_WATCHLIST.get(symbol);
-    const customRisk = strategy
-      ? {
-          takeProfitPct:
-            MASTER_WATCHLIST.get(symbol).takeProfitPct ||
-            this.DEFAULT_TAKE_PROFIT_PCT,
-          stopLossPct:
-            -MASTER_WATCHLIST.get(symbol).stopLossPct ||
-            -this.DEFAULT_STOP_LOSS_PCT,
-        }
-      : { takeProfitPct: 4, stopLossPct: -2 };
-
-    if (pnlPct <= customRisk.stopLossPct) {
-      console.log(`STOP_LOSS: ${pnlPct.toFixed(2)}%`);
+    const tradeExpired = didExpire(MASTER_WATCHLIST.get(symbol)?.expiration, pos.asset_id)
+    const riskMarginBreached = didPassPNLThresholds(MASTER_WATCHLIST.get(symbol), [
+        this.DEFAULT_TAKE_PROFIT_PCT,
+        this.DEFAULT_STOP_LOSS_PCT,
+      ])
+    if (riskMarginBreached) {
+      const reason = `${symbol} ${riskMarginBreached} reached at ${pnlPct.toFixed(2)}%, exiting...`;
+      console.log(reason);
       return {
         shouldExit: true,
-        reason: `STOP_LOSS: ${pnlPct.toFixed(2)}%`,
-      };
-    }
-
-    if (pnlPct >= customRisk.takeProfitPct) {
-      console.log(`TAKE_PROFIT: +${pnlPct.toFixed(2)}%`);
-      return {
-        shouldExit: true,
-        reason: `TAKE_PROFIT: +${pnlPct.toFixed(2)}%`,
-      };
+        reason: reason
+      }
     }
 
     return { shouldExit: false, reason: "" };

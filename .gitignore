@@ -12,6 +12,9 @@ node_modules
 .env.test.local
 .env.production.local
 
+# AI Instructions -- get your own!
+.aiStrategyInstructions.md
+
 # Testing
 coverage
 
@@ -29,6 +32,11 @@ dist
 
 # Trade Logs
 apps/engine/logs/
+
+# Backtest and Historical Data
+apps/backtest/fixtures/
+backtest-results/
+data/alpaca
 
 # Debug
 npm-debug.log*

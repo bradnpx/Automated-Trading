@@ -1,4 +1,4 @@
-import { yFinance } from "../../strategies/services/yfinance";
+import { yFinance } from "../../services/yfinance";
 
 export class Internals {
   private api: typeof yFinance = yFinance;

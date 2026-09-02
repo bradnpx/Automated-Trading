@@ -12,7 +12,8 @@
     "dotenv": "^16.0.0",
     "socket.io": "^4.8.3",
     "technicalindicators": "^3.1.0",
-    "yahoo-finance2": "^4.0.2"
+    "yahoo-finance2": "^4.0.2",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

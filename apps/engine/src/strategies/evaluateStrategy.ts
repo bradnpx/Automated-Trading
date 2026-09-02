@@ -68,6 +68,7 @@ export class EvaluateStrategy {
     bar: Bar,
     criteriaToTest: StrategyCriterion[],
     prevLow: number = 0,
+    internals?: {vix: number | null, tick: number | null}
   ): Promise<{
     meetsCriteria: boolean;
     report: Record<string, boolean>;

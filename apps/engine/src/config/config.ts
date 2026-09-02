@@ -8,6 +8,7 @@ export interface MasterWatchlistItem {
   takeProfitPct?: number;
   stopLossPct?: number;
   totalRisk?: number;
+  expiration?: number;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,13 +68,14 @@ function loadManualStrategiesFromEnv(): void {
       .filter(Boolean);
     const strategyName = process.env[`${prefix}_NAME`] || "defaultStrategy";
 
-    const totalRisk: number = Number(process.env[`${prefix}_RISK_PER_TRADE`])
+    const totalRisk: number = Number(process.env[`${prefix}_RISK_PER_TRADE`]);
     const takeProfit = process.env[`${prefix}_TAKE_PROFIT`]
       ? parseFloat(process.env[`${prefix}_TAKE_PROFIT`]!)
       : 2.2;
     const stopLoss = process.env[`${prefix}_STOP_LOSS`]
-      ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
-      : 2.0;
+    ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
+    : 2.0;
+    const expiration = Number(process.env[`${prefix}_EXPIRATION`]);
 
     for (const symbol of tickers) {
       MASTER_WATCHLIST.set(symbol, {
@@ -82,6 +84,7 @@ function loadManualStrategiesFromEnv(): void {
         takeProfitPct: takeProfit,
         stopLossPct: stopLoss,
         totalRisk: totalRisk,
+        expiration: expiration,
       });
       console.log(
         `📌 [CONFIG] Loaded manual ticker ${symbol} to Master Watchlist [Strategy: ${strategyName}]`,
