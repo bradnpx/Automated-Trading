@@ -1,10 +1,10 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 
 /**
  * Donchian channel breakout: long when price breaks above the prior N-bar high.
- * 
+ *
  * The classic turtle-style trend filter. "In" when this bar's close exceeds the highest high
  * of the previous `period` bars (excluding today, to avoid a trivial self-trigger); "out"
  * when it breaks below the prior `period`-bar low. Equal weight across "in" symbols.
@@ -30,9 +30,18 @@ export class DonchianBreakout implements IStrategy {
     this.evaluator.hydrate(bars);
   }
 
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
-      const verification = await this.evaluator.evaluate(bar, this.criteria);
+      const verification = await this.evaluator.evaluate(
+        bar,
+        this.criteria,
+        0,
+        undefined,
+        options,
+      );
 
       if (verification.report.isDonchianBreakout) {
         return {
@@ -42,7 +51,7 @@ export class DonchianBreakout implements IStrategy {
           reason: "donchian_in",
         };
       } else if (verification.report.isDonchianBreakdown) {
-         return {
+        return {
           symbol: bar.symbol,
           action: "SELL",
           confidence: 1.0,
@@ -57,7 +66,10 @@ export class DonchianBreakout implements IStrategy {
         reason: "donchian_flat",
       };
     } catch (error) {
-      console.error(`Error processing DonchianBreakout loop for ${bar.symbol}:`, error);
+      console.error(
+        `Error processing DonchianBreakout loop for ${bar.symbol}:`,
+        error,
+      );
       return {
         symbol: bar.symbol,
         action: "HOLD",

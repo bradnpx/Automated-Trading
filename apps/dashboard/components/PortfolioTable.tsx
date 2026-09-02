@@ -31,14 +31,13 @@ const columns = [
     cell: (info) => {
       // console.log(info.row);
       const val = parseFloat(info.getValue());
-      const qty = parseFloat(info.row.original.qty) || 0;
       // console.log(columns[1]);
       return (
         <span
           className={`font-mono font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}
         >
           {val >= 0 ? "+" : ""}
-          {(val * qty).toFixed(2)}
+          {val.toFixed(2)}
         </span>
       );
     },

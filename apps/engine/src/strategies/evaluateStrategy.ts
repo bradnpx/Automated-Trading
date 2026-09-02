@@ -1,5 +1,6 @@
 import { Bar } from "@my-platform/types";
 import { RSI } from "technicalindicators";
+
 import { getEasternTimeParts } from "../functions/getTradingSession.js";
 import {
   resolveStrategyParameters,
@@ -12,6 +13,7 @@ import {
   createRulesRegistry,
   PdlSweptAndReclaimedRule,
 } from "./rules/registry.js";
+import type { StrategyEvaluationOptions } from "./IStrategy.js";
 
 export type StrategyCriterion =
   | "isAlive"
@@ -49,45 +51,56 @@ export class EvaluateStrategy {
   private parameters: StrategyParameters;
 
   constructor(parameters: StrategyParameterOverrides = {}) {
-    // Each instance maintains separate sandbox states for its internal rules.
     this.rulesRegistry = createRulesRegistry();
     this.parameters = resolveStrategyParameters(parameters);
   }
 
-  public hydrate(bars: Bar[]) {
+  public hydrate(bars: Bar[]): void {
     this.history = [...bars];
   }
 
-  public resetSweepState() {
+  public resetSweepState(): void {
     for (const rule of this.rulesRegistry.values()) {
       if (rule.reset) rule.reset();
     }
   }
 
+  /**
+   * A completed minute bar is retained for indicators. A second-level synthetic
+   * bar is evaluated against that history but is never persisted into it.
+   */
   public async evaluate(
     bar: Bar,
     criteriaToTest: StrategyCriterion[],
-    prevLow: number = 0,
-    internals?: {vix: number | null, tick: number | null}
+    prevLow = 0,
+    internals?: { vix: number | null; tick: number | null },
+    options: StrategyEvaluationOptions = {},
   ): Promise<{
     meetsCriteria: boolean;
     report: Record<string, boolean>;
     metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
   }> {
-    this.history.push(bar);
-    if (this.history.length > 1000) this.history.shift();
+    if (options.recordBar !== false) {
+      this.history.push(bar);
+      if (this.history.length > 1000) this.history.shift();
+    }
+    const evaluationHistory =
+      options.recordBar === false
+        ? [...this.history, bar].slice(-1000)
+        : this.history;
 
     const report: Record<string, boolean> = {};
-    let premarketCache: any = null;
+    let premarketCache: Awaited<ReturnType<typeof getPremarketChange>> = null;
+    let hasLoadedPremarket = false;
 
     const getPremarket = async () => {
-      if (!premarketCache)
+      if (!hasLoadedPremarket) {
         premarketCache = await getPremarketChange(bar.symbol);
+        hasLoadedPremarket = true;
+      }
       return premarketCache;
     };
 
-    // --- Dynamic Evaluation Execution Context with Lazy Metrics ---
-    // Metrics calculations are cached inside execution scope only if explicitly evaluated
     let rsiCache: number | null = null;
     let rvolCache: number | null = null;
     let vwapCloseCache: number | null = null;
@@ -95,14 +108,15 @@ export class EvaluateStrategy {
 
     const context: RuleContext = {
       bar,
-      history: this.history,
+      history: evaluationHistory,
       prevLow,
       parameters: this.parameters,
+      internals,
       getPremarket,
       metrics: {
         get rsi() {
           if (rsiCache !== null) return rsiCache;
-          const prices = context.history.map((b) => b.close);
+          const prices = context.history.map((candidate) => candidate.close);
           const rsiValues = RSI.calculate({
             values: prices,
             period: context.parameters.rsiPeriod,
@@ -118,8 +132,10 @@ export class EvaluateStrategy {
           const recentVolumeBars = context.history.slice(-21, -1);
           const avgVolume =
             recentVolumeBars.length > 0
-              ? recentVolumeBars.reduce((sum, b) => sum + b.volume, 0) /
-                recentVolumeBars.length
+              ? recentVolumeBars.reduce(
+                  (sum, candidate) => sum + candidate.volume,
+                  0,
+                ) / recentVolumeBars.length
               : bar.volume;
           rvolCache = avgVolume > 0 ? bar.volume / avgVolume : 1;
           return rvolCache;
@@ -137,7 +153,6 @@ export class EvaluateStrategy {
       },
     };
 
-    // Process evaluation pipeline dynamically without switch statements
     for (const criterion of criteriaToTest) {
       const rule = this.rulesRegistry.get(criterion);
       if (rule) {
@@ -146,18 +161,14 @@ export class EvaluateStrategy {
         console.warn(`Warning: Criterion "${criterion}" is not supported.`);
         report[criterion] = false;
       }
-      // console.log(
-      //   `${bar.symbol} - ${criterion}: ${report[criterion] ? "✅" : "❌"}`,
-      // );
     }
 
-    const meetsCriteria = criteriaToTest.every((key) => report[key] === true);
     const pdlRule = this.rulesRegistry.get(
       "isPdlSweptAndReclaimed",
     ) as PdlSweptAndReclaimedRule;
 
     return {
-      meetsCriteria,
+      meetsCriteria: criteriaToTest.every((key) => report[key] === true),
       report,
       metrics: {
         rsi: context.metrics.rsi,
@@ -171,7 +182,6 @@ export class EvaluateStrategy {
   }
 }
 
-// --- Core Helper Functions ---
 function calculateSessionVWAP(
   history: Bar[],
   type: "close" | "typical",
@@ -189,10 +199,11 @@ function calculateSessionVWAP(
   let totalTypicalPriceVolume = 0;
   let totalVolume = 0;
 
-  for (const b of sessionBars) {
-    const price = type === "typical" ? (b.high + b.low + b.close) / 3 : b.close;
-    totalTypicalPriceVolume += price * b.volume;
-    totalVolume += b.volume;
+  for (const bar of sessionBars) {
+    const price =
+      type === "typical" ? (bar.high + bar.low + bar.close) / 3 : bar.close;
+    totalTypicalPriceVolume += price * bar.volume;
+    totalVolume += bar.volume;
   }
 
   return totalVolume === 0 ? 0 : totalTypicalPriceVolume / totalVolume;

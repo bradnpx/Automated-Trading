@@ -32,10 +32,12 @@ export async function fetchTradeHistory() {
       symbols: [],
     });
 
-    return orders
+    return orders;
 
     // Filter to only include those that were completely filled
-    const filledTrades = orders.filter((order) => order.status === "filled");
+    const filledTrades = orders.filter(
+      (order: { status?: string }) => order.status === "filled",
+    );
     // console.log(filledTrades);
   } catch (err) {
     console.error("Error fetching trades:", err);

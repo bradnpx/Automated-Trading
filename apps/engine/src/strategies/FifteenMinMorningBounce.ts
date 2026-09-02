@@ -1,6 +1,6 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy";
-import { IStrategy } from "./IStrategy";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy";
 
 export class FifteenMinMorningBounce implements IStrategy {
   private evaluator = new EvaluateStrategy();
@@ -19,7 +19,10 @@ export class FifteenMinMorningBounce implements IStrategy {
     this.evaluator.hydrate(bars);
   }
 
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
       if (!this.prevLow) {
         return this.hold(
@@ -33,6 +36,8 @@ export class FifteenMinMorningBounce implements IStrategy {
         bar,
         this.criteria,
         this.prevLow,
+        undefined,
+        options,
       );
       const { meetsCriteria, metrics } = verification;
 

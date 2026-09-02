@@ -1,93 +1,49 @@
+const BROKER_RECONCILIATION_INTERVAL_MS = 30_000;
+const PORTFOLIO_BROADCAST_INTERVAL_MS = 1_000;
+const ACCOUNT_REFRESH_INTERVAL_MS = 2_000;
 
 export function startBackgroundTasks(
   alpaca: any,
   posManager: any,
   broadcaster: any,
-  executor: any,
 ) {
-  // ─── 1. SLOW POSITION SYNC (every 30s) ───────────────────────────────────
-  // Reconciles local memory with the broker's truth to catch any missed
-  // WebSocket events. The primary sync is driven by onOrderUpdate fills;
-  // this is a safety-net fallback only.
-  setInterval(async () => {
-    try {
-      console.log(
-        "🔄 [TASKS] Running slow fallback position synchronization...",
-      );
-      await posManager.syncPositions();
-    } catch (err) {
-      console.error("❌ Task Engine Safety Sync Error:", err);
-    }
-  }, 30000);
+  // Broker reconciliation is intentionally slower than market marking. Alpaca's
+  // trade-update stream handles fills immediately; this catches missed events.
+  setInterval(() => {
+    void posManager.syncPositions();
+  }, BROKER_RECONCILIATION_INTERVAL_MS);
 
-  // ─── 2. DASHBOARD BROADCAST (every 2s) ───────────────────────────────────
-  // Broadcasts the latest local position cache and account state to the
-  // dashboard. Uses the cached equity helper to avoid hitting getAccount()
-  // on every tick.
-  setInterval(async () => {
-    try {
-      const localPositions = posManager.getPositions();
-      broadcaster.broadcastPortfolio(localPositions);
+  // Portfolio marks are updated by the market trade stream and broadcast on a
+  // predictable one-second cadence for the dashboard.
+  setInterval(() => {
+    broadcaster.broadcastPortfolio(posManager.getPositions());
+  }, PORTFOLIO_BROADCAST_INTERVAL_MS);
 
-      const account = await alpaca.getAccount();
-      broadcaster.broadcastAccount({
-        equity: parseFloat(account.equity),
-        buying_power: parseFloat(account.buying_power),
-        cash: parseFloat(account.cash),
-        day_pl: parseFloat(account.equity) - parseFloat(account.last_equity),
-        day_pl_pct:
-          parseFloat(account.equity) / parseFloat(account.last_equity) - 1,
-      });
+  // Keep account summary behavior separate so a slow account request never blocks
+  // the one-second portfolio feed.
+  let accountRefreshInFlight = false;
+  setInterval(() => {
+    if (accountRefreshInFlight) return;
+    accountRefreshInFlight = true;
 
-    } catch (err) {
-      console.error("❌ Task Engine Dashboard Broadcast Error:", err);
-    }
-  }, 2000);
-
-  // ─── 3. FALLBACK EXIT MONITOR (every 1s) ─────────────────────────────────
-  // Secondary safety net: catches any positions whose exit was missed by the
-  // stream pipeline (e.g. during a brief WebSocket gap). Uses current_price
-  // from the last broker sync rather than a live bar.
-  //
-  // All qualifying exits are fired in parallel via Promise.all so that one
-  // slow close call does not block others from executing.
-  setInterval(async () => {
-    try {
-      const positions = posManager.getPositions();
-
-      const exitTasks = positions
-        .filter((pos: any) => {
-          const { shouldExit } = posManager.checkExitConditions(
-            pos.symbol,
-            parseFloat(pos.current_price),
-          );
-          return shouldExit;
-        })
-        .map(async (pos: any) => {
-          // Re-check inside the map in case another path already acquired the
-          // lock between the filter pass and now (tight but possible race).
-          if (posManager.hasPendingExit(pos.symbol)) return;
-
-          posManager.markPendingExit(pos.symbol);
-          console.log(
-            `🚨 [TASKS] Exit condition triggered for ${pos.symbol}. Closing...`,
-          );
-
-          try {
-            await executor.closePosition(pos.symbol);
-            // Lock is cleared by onOrderUpdate on fill/cancel confirmation.
-          } catch (err) {
-            console.error(
-              `❌ [TASKS] Fallback close failed for ${pos.symbol}. Releasing lock.`,
-              err,
-            );
-            posManager.clearPendingExit(pos.symbol);
-          }
+    void alpaca
+      .getAccount()
+      .then((account: any) => {
+        const equity = Number(account.equity);
+        const lastEquity = Number(account.last_equity);
+        broadcaster.broadcastAccount({
+          equity,
+          buying_power: Number(account.buying_power),
+          cash: Number(account.cash),
+          day_pl: equity - lastEquity,
+          day_pl_pct: lastEquity === 0 ? 0 : equity / lastEquity - 1,
         });
-
-      await Promise.all(exitTasks);
-    } catch (err) {
-      console.error("❌ Task Engine Exit Check Error:", err);
-    }
-  }, 1000);
+      })
+      .catch((error: unknown) => {
+        console.error("❌ [TASKS] Account refresh failed:", error);
+      })
+      .finally(() => {
+        accountRefreshInFlight = false;
+      });
+  }, ACCOUNT_REFRESH_INTERVAL_MS);
 }

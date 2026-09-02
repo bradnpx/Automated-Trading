@@ -1,10 +1,10 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 
 /**
  * SMA crossover: long when the fast simple moving average is above the slow one.
- * 
+ *
  * A trend-following baseline. Per symbol, "in" when `SMA(fast) > SMA(slow)`; the engine
  * then holds an equal-weight book across all symbols currently "in", and cash otherwise.
  * Warmup: the strategy emits no signal until it has at least `slow` bars of history.
@@ -15,10 +15,7 @@ export class SMACross implements IStrategy {
   private slow: number;
   private _in: boolean = false;
 
-  private criteria: StrategyCriterion[] = [
-    "isSmaCross",
-    "isSmaCrossDown",
-  ];
+  private criteria: StrategyCriterion[] = ["isSmaCross", "isSmaCrossDown"];
 
   constructor(fast: number = 20, slow: number = 50) {
     if (fast >= slow) {
@@ -36,9 +33,18 @@ export class SMACross implements IStrategy {
     this.evaluator.hydrate(bars);
   }
 
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
-      const verification = await this.evaluator.evaluate(bar, this.criteria);
+      const verification = await this.evaluator.evaluate(
+        bar,
+        this.criteria,
+        0,
+        undefined,
+        options,
+      );
 
       if (verification.report.isSmaCross) {
         this._in = true;
@@ -50,7 +56,7 @@ export class SMACross implements IStrategy {
         };
       } else if (verification.report.isSmaCrossDown) {
         this._in = false;
-         return {
+        return {
           symbol: bar.symbol,
           action: "SELL",
           confidence: 1.0,

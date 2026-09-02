@@ -1,7 +1,7 @@
 // src/strategies/BiotechMomentum.ts
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 
 export class BiotechMomentumStrategy implements IStrategy {
   private evaluator = new EvaluateStrategy();
@@ -21,9 +21,18 @@ export class BiotechMomentumStrategy implements IStrategy {
     );
   }
 
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
-      const verification = await this.evaluator.evaluate(bar, this.criteria);
+      const verification = await this.evaluator.evaluate(
+        bar,
+        this.criteria,
+        0,
+        undefined,
+        options,
+      );
       const { meetsCriteria, metrics } = verification;
 
       const action = meetsCriteria ? "BUY" : "HOLD";

@@ -1,145 +1,144 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
-import { Bar } from "@my-platform/types";
-import { STRATEGY_RISK_MAP, MASTER_WATCHLIST } from "./config/config";
-import { StockBlacklist } from "./functions/getStockBlacklist";
+
+import { MASTER_WATCHLIST } from "./config/config.js";
+import { StockBlacklist } from "./functions/getStockBlacklist.js";
+import {
+  BrokerPosition,
+  Portfolio,
+  PortfolioPosition,
+} from "./models/portfolio.js";
 
 export class PositionManager {
-  private DEFAULT_STOP_LOSS_PCT = 0.02;
-  private DEFAULT_TAKE_PROFIT_PCT = 0.04;
-  private TRAILING_STOP_PCT = 0.015;
-
-  private alpaca: Alpaca;
+  private readonly DEFAULT_STOP_LOSS_PCT = 2;
+  private readonly DEFAULT_TAKE_PROFIT_PCT = 4;
+  private readonly alpaca: Alpaca;
+  private readonly portfolio = new Portfolio();
   private blacklist: StockBlacklist | undefined;
-  private positions: Map<string, any> = new Map();
-  private highWaterMarks: Map<string, number> = new Map();
 
-  /**
-   * Tracks symbols that have an exit order actively in-flight at the broker.
-   * A symbol is added here the moment closePosition() is called and removed
-   * as soon as the broker confirms the fill (via onOrderUpdate) or the call
-   * errors out. syncPositions() acts as a safety-net fallback only.
-   */
-  private pendingExits: Set<string> = new Set();
-  private pendingBuys: Set<string> = new Set();
+  /** Symbols with an exit order currently in flight at the broker. */
+  private pendingExits = new Set<string>();
+  /** Symbols with a buy order currently in flight at the broker. */
+  private pendingBuys = new Set<string>();
 
-  // Equity cache — avoids hitting getAccount() on every BUY signal evaluation
+  /** Avoids fetching account equity for every second-level strategy evaluation. */
   private cachedEquity: number | null = null;
-  private equityCacheTime: number = 0;
-  private readonly EQUITY_CACHE_TTL = 30000;
+  private equityCacheTime = 0;
+  private readonly EQUITY_CACHE_TTL = 30_000;
 
   constructor(alpaca: Alpaca) {
     this.alpaca = alpaca;
   }
 
-  async init(): Promise<this> {
+  public async init(): Promise<this> {
     if (!this.blacklist) {
-      this.blacklist = await StockBlacklist.getInstance(30000);
+      this.blacklist = await StockBlacklist.getInstance(30_000);
     }
-    const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
-    console.log("blacklistedSymbols", blacklistedSymbols);
     return this;
   }
 
   /**
-   * Syncs the local cache with the broker's actual holdings.
-   * Also acts as a fallback self-healer: if a symbol is in pendingExits
-   * but the position is already gone AND there are no open orders for it,
-   * the lock is stale and gets cleared here.
+   * Reconciles quantity and order state with Alpaca. Stream marks are retained by
+   * Portfolio when they are newer than the broker snapshot's current_price.
    */
-  async syncPositions() {
+  public async syncPositions(): Promise<PortfolioPosition[]> {
     try {
       const [currentPositions, openOrders] = await Promise.all([
         this.alpaca.getPositions(),
-        this.alpaca.getOrders({ status: "open" }),
+        this.alpaca.getOrders({
+          status: "open",
+          until: undefined,
+          after: undefined,
+          limit: undefined,
+          direction: undefined,
+          nested: undefined,
+          symbols: undefined,
+        }),
       ]);
 
-      this.positions.clear();
-      currentPositions.forEach((pos: any) => {
-        this.positions.set(pos.symbol, pos);
-      });
-
+      const positions = await this.portfolio.syncTrades(
+        currentPositions as BrokerPosition[],
+      );
       const openOrderSymbols = new Set<string>(
-        openOrders.map((order: any) => order.symbol),
+        openOrders.map((order: { symbol: string }) => order.symbol),
       );
 
-      // Clear stale pendingBuys where the order is no longer active
       for (const symbol of this.pendingBuys) {
-        if (!openOrderSymbols.has(symbol)) {
-          this.pendingBuys.delete(symbol);
-        }
+        if (!openOrderSymbols.has(symbol)) this.pendingBuys.delete(symbol);
       }
 
-      // Fallback cleanup: clear any exit lock where the position is gone AND
-      // no order is in-flight. The primary clear happens immediately after the
-      // close call resolves or in onOrderUpdate, so this should rarely fire.
       for (const symbol of this.pendingExits) {
-        const positionGone = !this.positions.has(symbol);
+        const positionGone = !this.portfolio.hasPosition(symbol);
         const noActiveOrder = !openOrderSymbols.has(symbol);
-
         if (positionGone || noActiveOrder) {
-          console.log(
-            `🔄 [STATE] Fallback-cleared stale pending exit for: ${symbol}`,
-          );
+          console.log(`🔄 [STATE] Cleared stale pending exit for: ${symbol}`);
           this.pendingExits.delete(symbol);
         }
       }
-    } catch (err) {
-      console.error("❌ [STATE] Error during syncPositions collection:", err);
+
+      return positions;
+    } catch (error) {
+      console.error(
+        "❌ [STATE] Error during broker position synchronization:",
+        error,
+      );
+      return this.getPositions();
     }
   }
 
-  getPositions() {
-    return [...this.positions.values()].map((pos) => ({ ...pos }));
+  /** Applies a stream-derived mark and recalculates portfolio P&L in memory. */
+  public updatePositionMark(
+    symbol: string,
+    price: number,
+    timestamp?: string,
+  ): boolean {
+    return this.portfolio.updateMark(symbol, price, timestamp);
   }
 
-  hasPosition(symbol: string): boolean {
-    return this.positions.has(symbol);
+  public getPositions(): PortfolioPosition[] {
+    return this.portfolio.getPositions();
   }
 
-  hasPendingExit(symbol: string): boolean {
+  public getPositionSymbols(): string[] {
+    return this.portfolio.getSymbols();
+  }
+
+  public hasPosition(symbol: string): boolean {
+    return this.portfolio.hasPosition(symbol);
+  }
+
+  public hasPendingExit(symbol: string): boolean {
     return this.pendingExits.has(symbol);
   }
 
-  canOpenPosition(symbol: string): boolean {
+  public canOpenPosition(symbol: string): boolean {
     const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
-    const isBlacklisted = blacklistedSymbols.includes(symbol);
-
-    if (isBlacklisted) {
+    if (blacklistedSymbols.includes(symbol)) {
       console.log(
         `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
       );
       return false;
     }
 
-    return !this.pendingBuys.has(symbol) && !this.positions.has(symbol);
+    return !this.pendingBuys.has(symbol) && !this.portfolio.hasPosition(symbol);
   }
 
-  setPendingBuy(symbol: string) {
+  public markPendingBuy(symbol: string): void {
     this.pendingBuys.add(symbol);
   }
 
-  clearPendingBuy(symbol: string) {
+  public clearPendingBuy(symbol: string): void {
     this.pendingBuys.delete(symbol);
   }
 
-  markPendingExit(symbol: string) {
+  public markPendingExit(symbol: string): void {
     this.pendingExits.add(symbol);
   }
 
-  getPendingExits() {
-    return this.pendingExits;
-  }
-
-  clearPendingExit(symbol: string) {
+  public clearPendingExit(symbol: string): void {
     this.pendingExits.delete(symbol);
   }
 
-  /**
-   * Returns cached account equity, fetching from the broker only when the
-   * cache is stale (TTL: 30s). Avoids a live getAccount() call on every
-   * BUY signal evaluation in the pipeline.
-   */
-  async getOrFetchEquity(): Promise<number> {
+  public async getOrFetchEquity(): Promise<number> {
     const now = Date.now();
     if (
       this.cachedEquity !== null &&
@@ -150,126 +149,61 @@ export class PositionManager {
 
     try {
       const account = await this.alpaca.getAccount();
-      this.cachedEquity = parseFloat(account.equity);
+      this.cachedEquity = Number(account.equity);
       this.equityCacheTime = now;
       return this.cachedEquity;
-    } catch (err) {
-      console.error("❌ [POS] Failed to fetch account equity:", err);
+    } catch (error) {
+      console.error("❌ [POS] Failed to fetch account equity:", error);
       if (this.cachedEquity !== null) return this.cachedEquity;
-      throw err;
+      throw error;
     }
   }
 
   /**
-   * Evaluate Stop-loss and Take-profit thresholds.
-   * Returns shouldExit: false immediately if an exit is already in-flight,
-   * preventing duplicate close attempts from any caller.
+   * Evaluates position-level stop-loss and take-profit thresholds using a mark
+   * supplied by the real-time trade stream. Thresholds are percentage points.
    */
-  checkExitConditions(symbol: string, currentPrice: number) {
+  public checkExitConditions(
+    symbol: string,
+    currentPrice: number,
+  ): {
+    shouldExit: boolean;
+    reason: string;
+  } {
     if (this.pendingExits.has(symbol)) {
       return { shouldExit: false, reason: "" };
     }
 
-    const pos = this.positions.get(symbol);
-    if (!pos) return { shouldExit: false, reason: "" };
-
-    const exitConditions = {
-      stoploss: false,
-      takeprofit: false,
-      agedOut: false,
-    };
-
-    const entryPrice = parseFloat(pos.avg_entry_price);
-
-    function getRoundedPnLPercentage(
-      currentPrice: number,
-      entryPrice: number,
-    ): number {
-      return ((currentPrice - entryPrice) / entryPrice) * 100;
+    const position = this.portfolio.getPosition(symbol);
+    if (!position || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+      return { shouldExit: false, reason: "" };
     }
 
-    function didPassPNLThresholds(
-      symbol: typeof pos,
-      defaults: number[],
-    ): "stop-loss" | "take-profit" | null {
-      if (!symbol) {
-        throw new Error("🚫ERROR: symbol not found in MASTER_WATCHLIST, fix immediately");
-      }
-      const defaultRisk = {
-        takeProfitPct: defaults,
-        stopLossPct: -defaults,
-      };
-
-      const takeProfit = symbol.takeProfitPct || defaultRisk.takeProfitPct
-      const stopLoss = symbol.stopLossPct || defaultRisk.stopLossPct
-
-      const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
-      // console.log(`${symbol} pnlPct: ${pnlPct}, sl: ${stopLoss}, tp:${takeProfit}`)
-      if (pnlPct <= -stopLoss) {
-        return "stop-loss";
-      }
-
-      if (pnlPct >= takeProfit) {
-        return "take-profit";
-      }
-
-      return null;
+    const entryPrice = Number(position.avg_entry_price);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+      return { shouldExit: false, reason: "" };
     }
 
-    function didExpire(expiration: number | undefined, tradeId: symbol | undefined) {
-      if (!expiration || !tradeId) {
-        return null;
-      }
-      console.log('didExpire')
-    }
+    const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+    const strategy = MASTER_WATCHLIST.get(symbol);
+    const stopLossPct = strategy?.stopLossPct ?? this.DEFAULT_STOP_LOSS_PCT;
+    const takeProfitPct =
+      strategy?.takeProfitPct ?? this.DEFAULT_TAKE_PROFIT_PCT;
 
-    console.log(pos)
-    const pnlPct = getRoundedPnLPercentage(currentPrice, entryPrice);
-    const currentHWM = this.highWaterMarks.get(symbol) || entryPrice;
-    if (currentPrice > currentHWM) {
-      this.highWaterMarks.set(symbol, currentPrice);
-      console.log(`📈 [${symbol}] New Peak: $${currentPrice.toFixed(2)}`);
-    }
-
-    const tradeExpired = didExpire(MASTER_WATCHLIST.get(symbol)?.expiration, pos.asset_id)
-    const riskMarginBreached = didPassPNLThresholds(MASTER_WATCHLIST.get(symbol), [
-        this.DEFAULT_TAKE_PROFIT_PCT,
-        this.DEFAULT_STOP_LOSS_PCT,
-      ])
-    if (riskMarginBreached) {
-      const reason = `${symbol} ${riskMarginBreached} reached at ${pnlPct.toFixed(2)}%, exiting...`;
-      console.log(reason);
+    if (pnlPct <= -Math.abs(stopLossPct)) {
       return {
         shouldExit: true,
-        reason: reason
-      }
+        reason: `STOP_LOSS: ${pnlPct.toFixed(2)}%`,
+      };
+    }
+
+    if (pnlPct >= Math.abs(takeProfitPct)) {
+      return {
+        shouldExit: true,
+        reason: `TAKE_PROFIT: +${pnlPct.toFixed(2)}%`,
+      };
     }
 
     return { shouldExit: false, reason: "" };
-  }
-
-  shouldEmergencyExit(bar: Bar): { exit: boolean; reason: string } {
-    const pos = this.positions.get(bar.symbol);
-    if (!pos) return { exit: false, reason: "" };
-
-    const entryPrice = parseFloat(pos.avg_entry_price);
-    const currentPrice = bar.close;
-    const plPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
-
-    if (plPercent <= -2.0) {
-      return {
-        exit: true,
-        reason: `Stop loss triggered: ${plPercent.toFixed(2)}%`,
-      };
-    }
-
-    if (plPercent >= 5.0) {
-      return {
-        exit: true,
-        reason: `Take profit reached: ${plPercent.toFixed(2)}%`,
-      };
-    }
-
-    return { exit: false, reason: "" };
   }
 }
