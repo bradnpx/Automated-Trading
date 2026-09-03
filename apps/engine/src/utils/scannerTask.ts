@@ -20,8 +20,8 @@ export async function executeDynamicScannerSweep(
         MASTER_WATCHLIST.set(symbol, {
           symbol,
           strategy: "dayTradeMicroScalp",
-          stopLossPct: 2,
-          takeProfitPct: 2.2,
+          stopLossPct: 5,
+          takeProfitPct: 5,
         });
         brandNewSymbols.push(symbol);
       }

@@ -9,6 +9,7 @@ export class DayTradeMicroScalp implements IStrategy {
   // and isHighRVOL (which fail due to scanner hydration issues) and focus on pure price action.
   private criteria: StrategyCriterion[] = [
     "isBullish",
+    // "isElevatedRVOL",
     "isHoldingVWAP",
     "isNotExtended",
     "isInPriceRange",

@@ -287,8 +287,8 @@ export class StreamPipeline {
       MASTER_WATCHLIST.set(bar.symbol, {
         symbol: bar.symbol,
         strategy: "dayTradeMicroScalp",
-        stopLossPct: 2,
-        takeProfitPct: 2.2,
+        stopLossPct: 5,
+        takeProfitPct: 5,
         totalRisk: 0.01,
       });
       syncTrackingCaches();

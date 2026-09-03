@@ -76,7 +76,9 @@ function resolveRunInputs(
 
   if (strategy) {
     if (dataPath || configPath) {
-      throw new Error("Use either --strategy or both --data and --config, not both modes");
+      throw new Error(
+        "Use either --strategy or both --data and --config, not both modes",
+      );
     }
 
     const strategyId = readStrategyId({ strategyId: strategy }, "strategyId");
@@ -93,7 +95,7 @@ function resolveRunInputs(
       configPath: resolve(fixtureDirectory, `${strategyId}.json`),
       outputDirectory: resolve(
         inputRoot,
-        outputDirectory ?? "backtest-results",
+        outputDirectory ?? "apps/backtest/backtest-results",
         strategyId,
       ),
       description: `fixture strategy ${strategyId}`,
@@ -101,13 +103,18 @@ function resolveRunInputs(
   }
 
   if (!dataPath || !configPath) {
-    throw new Error("Provide --strategy <strategyId>, or provide both --data and --config");
+    throw new Error(
+      "Provide --strategy <strategyId>, or provide both --data and --config",
+    );
   }
 
   return {
     dataPath: resolve(inputRoot, dataPath),
     configPath: resolve(inputRoot, configPath),
-    outputDirectory: resolve(inputRoot, outputDirectory ?? "backtest-results"),
+    outputDirectory: resolve(
+      inputRoot,
+      outputDirectory ?? "apps/backtest/backtest-results",
+    ),
     description: "explicit data and configuration files",
   };
 }
@@ -170,13 +177,19 @@ async function loadBacktestConfig(path: string): Promise<BacktestConfig> {
     strategyId,
     initialCash: readNumber(parsed, "initialCash"),
     riskPerTrade: readNumber(parsed, "riskPerTrade"),
-    positionSizingMethod: readPositionSizingMethod(parsed, "positionSizingMethod"),
+    positionSizingMethod: readPositionSizingMethod(
+      parsed,
+      "positionSizingMethod",
+    ),
     maxPositionPct: readNumber(parsed, "maxPositionPct"),
     stopLossPct: readNullableNumber(parsed, "stopLossPct"),
     takeProfitPct: readNullableNumber(parsed, "takeProfitPct"),
     slippageBps: readNumber(parsed, "slippageBps"),
     commissionPerOrder: readNumber(parsed, "commissionPerOrder"),
-    intrabarFillPriority: readIntrabarFillPriority(parsed, "intrabarFillPriority"),
+    intrabarFillPriority: readIntrabarFillPriority(
+      parsed,
+      "intrabarFillPriority",
+    ),
     closeOpenPositionsAtEnd: readBoolean(parsed, "closeOpenPositionsAtEnd"),
     strategyParameters: readStrategyParameters(parsed.strategyParameters),
   };
@@ -251,7 +264,9 @@ function readBoolean(config: Record<string, unknown>, key: string): boolean {
   throw new Error(`${key} must be a boolean`);
 }
 
-function readStrategyParameters(value: unknown): BacktestConfig["strategyParameters"] {
+function readStrategyParameters(
+  value: unknown,
+): BacktestConfig["strategyParameters"] {
   if (value === undefined) {
     return {};
   }
@@ -261,7 +276,10 @@ function readStrategyParameters(value: unknown): BacktestConfig["strategyParamet
 
   const parameters: Record<string, number> = {};
   for (const [key, parameterValue] of Object.entries(value)) {
-    if (typeof parameterValue !== "number" || !Number.isFinite(parameterValue)) {
+    if (
+      typeof parameterValue !== "number" ||
+      !Number.isFinite(parameterValue)
+    ) {
       throw new Error(`strategyParameters.${key} must be a finite number`);
     }
     parameters[key] = parameterValue;
@@ -275,11 +293,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function printHelp(): void {
-  process.stdout.write(`Backtest runner\n\nSimplified fixture run:\n  pnpm --filter backtest backtest -- --strategy smaCross\n\nFixture convention:\n  apps/backtest/fixtures/<strategyId>/<strategyId>.csv\n  apps/backtest/fixtures/<strategyId>/<strategyId>.json\n\nAdvanced explicit-path run:\n  pnpm --filter backtest backtest -- --data data/aapl.csv --config configs/sma.json\n\nOptional:\n  --output <directory>    Result directory; defaults to backtest-results/<strategyId> in fixture mode\n`);
+  process.stdout.write(
+    `Backtest runner\n\nSimplified fixture run:\n  pnpm --filter backtest backtest -- --strategy smaCross\n\nFixture convention:\n  apps/backtest/fixtures/<strategyId>/<strategyId>.csv\n  apps/backtest/fixtures/<strategyId>/<strategyId>.json\n\nAdvanced explicit-path run:\n  pnpm --filter backtest backtest -- --data data/aapl.csv --config configs/sma.json\n\nOptional:\n  --output <directory>    Result directory; defaults to apps/backtest/backtest-results/<strategyId> in fixture mode\n`,
+  );
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Unknown backtest failure";
+  const message =
+    error instanceof Error ? error.message : "Unknown backtest failure";
   process.stderr.write(`Backtest failed: ${message}\n`);
   process.exitCode = 1;
 });

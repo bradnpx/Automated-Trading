@@ -23,7 +23,7 @@ export type StrategyCriterion =
   | "isBounced"
   | "isBullish"
   | "isBullishFollowthrough"
-  | "isHighRVOL"
+  | "isElevatedRVOL"
   | "isHoldingVWAP"
   | "isInPriceRange"
   | "isInSession"
