@@ -24,16 +24,18 @@ export const StatelessRules: Partial<
       ? checkForBounce({ sourceBar: priorBar, targetBar: bar })
       : false;
   },
-  isBullish: ({ bar }) => bar.close > bar.open,
+  isBullish: ({ bar }) =>
+    bar.close > bar.open &&
+    (bar.close - bar.low) / (bar.high - bar.low) >= 0.65,
   isBullishFollowthrough: ({ bar, history }) => {
     const priorBar = history[history.length - 2];
     return (
       bar.close > bar.open && (priorBar ? bar.close > priorBar.close : true)
     );
   },
+  isElevatedRVOL: ({ metrics }) => metrics.rvol >= 1.5,
   isHoldingVWAP: ({ bar, metrics }) =>
     bar.low > metrics.vwapTypical * (1 - 0.0025),
-  isHighRVOL: ({ metrics }) => metrics.rvol >= 5,
   isInSession: ({ bar }) => getTradingSession(bar.timestamp) === "market",
   isInPriceRange: ({ bar }) => bar.close >= 2 && bar.close <= 20,
   isLowFloat: async ({ bar, metrics }) => {
@@ -41,7 +43,7 @@ export const StatelessRules: Partial<
     return float !== null && float < 25000000;
   },
   isNotExtended: ({ bar, metrics }) =>
-    (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.04,
+    (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.02,
   isPennyStock: ({ bar }) => bar.close >= 1 && bar.close <= 10,
   isPremarket: () => getTradingSession() === "premarket",
   isPremarketGapper: async ({ getPremarket }) => {

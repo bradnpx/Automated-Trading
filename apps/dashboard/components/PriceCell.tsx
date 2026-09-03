@@ -12,10 +12,10 @@ export default function PriceCell({ price, direction }: PriceCellProps) {
 
     useEffect(() => {
         if (prevPriceRef.current !== price) {
-            const colorClass = direction === "up" ? "bg-green-200" : "bg-red-200"
+            const colorClass = direction === "up" ? "bg-green-200 text-green-800" : "bg-red-200 text-red-600"
             setFlashClass(colorClass);
 
-            const timer = setTimeout(() => setFlashClass(""), 300);
+            const timer = setTimeout(() => setFlashClass(""), 600);
             prevPriceRef.current = price;
             return () => clearTimeout(timer);
         }

@@ -109,14 +109,14 @@ function tradeGroupStats(tradeGroups, watchlist) {
     if (!t.length || t.length !== 2) {
       continue;
     }
-    const pnl = Number(t[1].filled_avg_price) - Number(t[0].filled_avg_price);
-    const pnlPct = pnl / Number(t[0].filled_avg_price);
+    const pnl = Number(t[0].filled_avg_price) - Number(t[1].filled_avg_price);
+    const pnlPct = pnl / Number(t[1].filled_avg_price);
     const isWinner = pnl > 0;
     const stats: Trade = {
       symbol: t[0].symbol,
       strategy: getStrategy(t[0].symbol, watchlist),
-      priceOpen: t[0].filled_avg_price,
-      priceClose: t[1].filled_avg_price,
+      priceOpen: t[1].filled_avg_price,
+      priceClose: t[0].filled_avg_price,
       pnl: pnl,
       pnlPct: pnlPct,
       qty: t[0].qty,
@@ -126,6 +126,7 @@ function tradeGroupStats(tradeGroups, watchlist) {
       tradeLogs: t,
     };
 
+    // console.log(stats)
     analyzedGroups.push(stats);
   }
   return analyzedGroups;

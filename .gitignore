@@ -32,6 +32,7 @@ dist
 
 # Trade Logs
 apps/engine/logs/
+apps/engine/data/portfolio.json
 
 # Backtest and Historical Data
 apps/backtest/fixtures/

@@ -1,6 +1,6 @@
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 
 export class BasicStrategy implements IStrategy {
   // Initialize a long-lived evaluator context to preserve lookback history arrays
@@ -8,9 +8,7 @@ export class BasicStrategy implements IStrategy {
   private prevLow: number = 0;
 
   // Set the precise criteria manifest this specific strategy is responsible for verifying
-  private criteria: StrategyCriterion[] = [
-    "isAlive",
-  ];
+  private criteria: StrategyCriterion[] = ["isAlive"];
 
   public hydrate(bars: Bar[], prevLow?: number) {
     this.prevLow = prevLow || 0;
@@ -20,10 +18,19 @@ export class BasicStrategy implements IStrategy {
   }
 
   // Changed return layout from 'TradeSignal' to 'Promise<TradeSignal>' to satisfy async rules
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
       // Execute rule checking suite dynamically against your defined checklist
-      const verification = await this.evaluator.evaluate(bar, this.criteria);
+      const verification = await this.evaluator.evaluate(
+        bar,
+        this.criteria,
+        0,
+        undefined,
+        options,
+      );
 
       if (verification.meetsCriteria) {
         return {
