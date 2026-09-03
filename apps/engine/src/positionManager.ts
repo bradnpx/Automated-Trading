@@ -113,9 +113,9 @@ export class PositionManager {
   public canOpenPosition(symbol: string): boolean {
     const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
     if (blacklistedSymbols.includes(symbol)) {
-      console.log(
-        `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
-      );
+      // console.log(
+      //   `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
+      // );
       return false;
     }
 

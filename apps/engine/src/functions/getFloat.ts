@@ -1,8 +1,9 @@
 import axios from "axios";
 import { POLYGON_API } from "../config/config";
+import { yFinance } from "../services/yfinance";
 import { response } from "express";
 
-interface PolygonFloatResponse {
+interface FloatResponse {
   status: string;
   results?: {
     free_float?: number; // Marked optional to catch structural mismatches safely
@@ -15,35 +16,23 @@ interface PolygonFloatResponse {
  * Fetches the public free float for a given ticker from Polygon.io -> Now Massive.com
  */
 export async function getPublicFreeFloat(
-  ticker: string,
+  symbol: string,
 ): Promise<number | null> {
   const url = `https://api.massive.com/stocks/vX/float`;
+  const ticker = symbol.replaceAll(".", "-");
 
   try {
-    const response = await axios.get<PolygonFloatResponse>(url, {
-      params: {
-        ticker: ticker.toUpperCase(),
-        apiKey: POLYGON_API,
-      },
+    const result = await yFinance.quoteSummary(ticker, {
+      modules: ["defaultKeyStatistics"],
     });
 
-    // console.log("[API Payload Debug]:", JSON.stringify(response.data, null, 2));
-
-    if (
-      response.data.status === "OK" &&
-      response.data.results &&
-      response.data.results.length > 0
-    ) {
-      return response.data.results[0].free_float ?? null;
-    }
-
-    return null;
-  } catch (error) {
-    const reason = response.statusCode === 429 ? '429: Too many requests.' : response.statusCode;
-    console.error(
-      `[Polygon API Error] Failed to fetch float for ${ticker}:`,
-      error,
+    console.log(
+      `☀️yfinance float call for ${symbol} (${ticker}):`,
+      result.defaultKeyStatistics?.floatShares,
     );
+    return result.defaultKeyStatistics?.floatShares ?? null;
+  } catch (error) {
+    console.error(`Failed to fetch float for ${ticker}:`);
     return null;
   }
 }
