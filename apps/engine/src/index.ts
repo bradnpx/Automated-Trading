@@ -15,8 +15,6 @@ import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
-import { fetchTradeHistory } from "./middleware/logger.js";
-import { StockBlacklist } from "./functions/getStockBlacklist.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +23,6 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 async function main() {
   // INITIALIZATION LAYER
   const alpaca = new Alpaca();
-  const blacklist = await StockBlacklist.getInstance(30000);
   const posManager = new PositionManager(alpaca);
   await posManager.init();
   const executor = new Executor(alpaca);
@@ -35,7 +32,7 @@ async function main() {
   const engineState = { isKilled: false };
 
   await checkAccountHealth(alpaca);
-  await posManager.syncPositions();
+  await Promise.all([posManager.syncPositions(), posManager.syncAccount()]);
 
   console.log("🔍[BOOTSTRAP] Executing primary gainer discovery sweep...");
   try {
@@ -62,7 +59,7 @@ async function main() {
 
   // 4. START INDEPENDENT SUBSYSTEMS
   startApiService({ posManager, executor, broadcaster, engineState });
-  startBackgroundTasks(alpaca, posManager, broadcaster, executor);
+  startBackgroundTasks(posManager, broadcaster);
 
   const pipeline = new StreamPipeline(
     alpaca,

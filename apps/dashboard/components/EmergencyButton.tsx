@@ -15,7 +15,7 @@ export default function EmergencyButton() {
       const res = await fetch("http://localhost:4001/panic", {
         method: "POST",
       });
-      if (res.ok) setStatus("dead");
+
     } catch (err) {
       alert("Failed to reach engine!");
     } finally {
@@ -29,7 +29,7 @@ export default function EmergencyButton() {
       const res = await fetch("http://localhost:4001/reset", {
         method: "POST",
       });
-      if (res.ok) setStatus("idle");
+
     } catch (err) {
       console.error("Reset failed", err);
     } finally {
