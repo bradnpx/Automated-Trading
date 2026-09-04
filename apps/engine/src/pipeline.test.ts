@@ -49,6 +49,12 @@ async function run(): Promise<void> {
   };
 
   const positionManager = {
+    async syncPositions() {
+      return [];
+    },
+    async syncAccount() {
+      return null;
+    },
     getPositionSymbols: () => [],
     updatePositionMark: (symbol: string, price: number) => {
       markedPositions.push({ symbol, price });

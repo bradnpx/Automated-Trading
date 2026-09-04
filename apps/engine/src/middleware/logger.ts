@@ -1,7 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
 import { TradeRecord, WinRateReport } from "@my-platform/types";
-import Alpaca from "@alpacahq/alpaca-trade-api";
 
 const LOG_PATH = path.resolve(process.cwd(), "logs/trades.json");
 
@@ -15,34 +14,6 @@ export async function logTrade(trade: TradeRecord) {
   console.log("Trade Logged");
 }
 
-export async function fetchTradeHistory() {
-  const alpaca = new Alpaca({
-    keyId: process.env.APCA_API_KEY_ID || "",
-    secretKey: process.env.APCA_API_SECRET_KEY || "",
-  });
-
-  try {
-    const orders = await alpaca.getOrders({
-      status: "filled",
-      direction: "desc",
-      until: undefined,
-      after: undefined,
-      limit: 500,
-      nested: false,
-      symbols: [],
-    });
-
-    return orders;
-
-    // Filter to only include those that were completely filled
-    const filledTrades = orders.filter(
-      (order: { status?: string }) => order.status === "filled",
-    );
-    // console.log(filledTrades);
-  } catch (err) {
-    console.error("Error fetching trades:", err);
-  }
-}
 export async function getTradeHistory() {
   try {
     const data = await fs.readFile(LOG_PATH, "utf8");

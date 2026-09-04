@@ -84,6 +84,8 @@ export class StreamPipeline {
     tradeStream.onConnect(() => {
       console.log("🤝 Trade WebSocket: Connected");
       tradeStream.subscribe(["trade_updates"]);
+      void this.posManager.syncPositions();
+      void this.posManager.syncAccount();
     });
 
     tradeStream.onOrderUpdate((data: any) => {
@@ -131,52 +133,50 @@ export class StreamPipeline {
     if (!symbol || !price) return;
 
     this.updateLiveBar(symbol, price, size, timestamp);
-    this.posManager.updatePositionMark(symbol, price);
+    this.posManager.updatePositionMark(symbol, price, timestamp);
     this.broadcaster.broadcastBar(symbol, price);
   }
 
   private async processOrderUpdate(data: any): Promise<void> {
     try {
-      const { event, order, price, fillQty } = data;
-      if (!order?.symbol) return;
+      const { event, order } = data;
+      if (!order?.symbol || !order?.id) return;
+
+      const strategyHint = MASTER_WATCHLIST.get(order.symbol)?.strategy;
+      const lifecycleUpdate = await this.posManager.applyTradeUpdate(
+        data,
+        strategyHint,
+      );
+      if (!lifecycleUpdate) return;
 
       if (event === "canceled" || event === "rejected" || event === "expired") {
         this.posManager.clearPendingExit(order.symbol);
         this.posManager.clearPendingBuy(order.symbol);
-        await this.posManager.syncPositions();
-        this.subscribeToSymbols(this.posManager.getPositionSymbols());
+        this.posManager.requestBrokerReconciliation();
         this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
         return;
       }
 
       if (event !== "fill" && event !== "partial_fill") return;
+      const fill = lifecycleUpdate.appliedFill;
+      if (!fill) return;
 
-      let fillPrice = Number(price || 0);
-      let quantity = Number(fillQty || 0);
-      if ((fillPrice === 0 || quantity === 0) && event === "fill") {
-        fillPrice = Number(order.filled_avg_price || 0);
-        quantity = Number(order.filled_qty || 0);
-      }
-      if (fillPrice === 0 || quantity === 0) return;
-
-      console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fillPrice}`);
-      if (order.side === "sell") {
+      console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fill.price}`);
+      if (order.side === "sell" && event === "fill") {
         this.posManager.clearPendingExit(order.symbol);
       }
       if (order.side === "buy" && event === "fill") {
         this.posManager.clearPendingBuy(order.symbol);
       }
 
-      const position = this.posManager
-        .getPositions()
-        .find(
-          (candidate: { symbol: string }) => candidate.symbol === order.symbol,
-        );
-      const entry = position ? Number(position.avg_entry_price) : 0;
+      const lifecycleTrade = lifecycleUpdate.closedTrade ?? lifecycleUpdate.openTrade;
+      const entry = lifecycleTrade?.averageEntryPrice ?? 0;
       const pnl =
-        order.side === "sell" && entry > 0 ? (fillPrice - entry) * quantity : 0;
+        order.side === "sell" && entry > 0
+          ? (fill.price - entry) * fill.quantity
+          : 0;
       const pnlPct =
-        order.side === "sell" && entry > 0 ? (fillPrice - entry) / entry : 0;
+        order.side === "sell" && entry > 0 ? (fill.price - entry) / entry : 0;
       const winStatus =
         order.side !== "sell"
           ? "OPENING"
@@ -188,21 +188,17 @@ export class StreamPipeline {
 
       await logTrade({
         symbol: order.symbol,
-        side: order.side.toUpperCase(),
-        qty: quantity.toString(),
-        price: fillPrice.toString(),
+        side: order.side,
+        qty: fill.quantity.toString(),
+        price: fill.price.toString(),
         pnl,
         pnl_pct: pnlPct,
-        timestamp: new Date().toISOString(),
-        reason:
-          order.side === "sell"
-            ? "Exit"
-            : (MASTER_WATCHLIST.get(order.symbol)?.strategy ??
-              "UnknownStrategy"),
+        timestamp: fill.filledAt,
+        reason: order.side === "sell" ? "Exit" : (strategyHint ?? "UnknownStrategy"),
         win_status: winStatus,
       });
 
-      await this.posManager.syncPositions();
+      this.posManager.requestBrokerReconciliation();
       this.subscribeToSymbols(this.posManager.getPositionSymbols());
       this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
     } catch (error) {
@@ -356,7 +352,8 @@ export class StreamPipeline {
         return;
       }
 
-      await this.posManager.syncPositions();
+      // The trade-update stream records broker state; the fallback reconciliation
+      // covers a delayed or missed stream event without an immediate REST pull.
     } catch (error) {
       console.error(`❌ Execution error for ${bar.symbol}:`, error);
       this.posManager.clearPendingBuy(bar.symbol);
@@ -369,7 +366,6 @@ export class StreamPipeline {
     const quantity = 1;
     console.log(`🧪 TEST: Forcing a test buy for ${symbol}...`);
     await this.executor.placeBuyOrder(symbol, quantity);
-    await this.posManager.syncPositions();
     StreamPipeline.ranTestBuy = true;
   }
 

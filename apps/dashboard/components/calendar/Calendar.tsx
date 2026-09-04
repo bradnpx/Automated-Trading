@@ -40,7 +40,7 @@ interface Props {
   trades: Trade[];
 }
 
-export default function Calendar({ trades }: Trade[]) {
+export default function Calendar({ trades }: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
 
 
