@@ -25,7 +25,7 @@ POLYGON_API_KEY=your_polygon_api_key
 ALPHA_VANTAGE_API_KEY=your_alpha_vantage_api_key
 
 # Strategy Watchlist Configurations
-STRATEGY_001_ID="basicStrategy"
+STRATEGY_001_NAME="bullFlagMomentum"
 STRATEGY_001_WATCHLIST="AAPL,MSFT,TSLA"
 ```
 
@@ -38,15 +38,17 @@ pnpm dev
 ```
 
 This command parallelizes the execution of the following subsystems:
+
 - **Trading Engine**: Starts the TypeScript trading core, connecting to Alpaca WebSockets and exposing an Express control API on port `4001` and a Socket.IO server on port `4000`.
 - **Web Dashboard**: Launches the Next.js frontend on `http://localhost:3000` to visualize streaming telemetry, positions, and health.
 
-
 You can spin up either of these individually with the following commands:
+
 ```bash
 pnpm --filter engine dev
 pnpm --filter dashboard dev
 ```
+
 ### Deployment with Docker (WIP)
 
 The application includes a `docker-compose.yml` configuration for containerized environments. To build and run the services in production mode:
@@ -61,37 +63,47 @@ docker-compose up --build -d
 
 The trading engine is modularized into several decoupled layers, each responsible for a distinct phase of the trading lifecycle.
 
-| Subsystem | Primary Responsibility | Key Files |
-| :--- | :--- | :--- |
-| **Discovery (Scanner)** | Scans market movers and filters candidates by supply metrics. | `scanner.ts`, `scanners/preMarketScanner.ts` |
-| **Pipeline (Stream)** | Manages WebSocket connections, parses bars, and routes orders. | `pipeline.ts` |
-| **Strategy Engine** | Hydrates historical indicators and evaluates entry rules. | `strategies/`, `strategies/StrategyFactory.ts` |
-| **Position Manager** | Tracks open risk, high-water marks, and exit thresholds. | `positionManager.ts` |
-| **Executor** | Routes buy, sell, and panic orders directly to the broker. | `executor.ts` |
-| **Broadcaster** | Emits real-time engine telemetry to the dashboard. | `broadcaster.ts` |
-| **Control API** | Exposes HTTP endpoints for manual interventions. | `api.ts` |
-| **Background Tasks** | Polling loops that sync account state and verify exit rules. | `tasks.ts` |
+| Subsystem               | Primary Responsibility                                         | Key Files                                      |
+| :---------------------- | :------------------------------------------------------------- | :--------------------------------------------- |
+| **Discovery (Scanner)** | Scans market movers and filters candidates by supply metrics.  | `scanner.ts`, `scanners/preMarketScanner.ts`   |
+| **Pipeline (Stream)**   | Manages WebSocket connections, parses bars, and routes orders. | `pipeline.ts`                                  |
+| **Strategy Engine**     | Hydrates historical indicators and evaluates entry rules.      | `strategies/`, `strategies/StrategyFactory.ts` |
+| **Position Manager**    | Tracks open risk, high-water marks, and exit thresholds.       | `positionManager.ts`                           |
+| **Executor**            | Routes buy, sell, and panic orders directly to the broker.     | `executor.ts`                                  |
+| **Broadcaster**         | Emits real-time engine telemetry to the dashboard.             | `broadcaster.ts`                               |
+| **Control API**         | Exposes HTTP endpoints for manual interventions.               | `api.ts`                                       |
+| **Background Tasks**    | Polling loops that sync account state and verify exit rules.   | `tasks.ts`                                     |
 
 ### Discovery (Pre-Market Scanner)
+
 The application initiates each trading session by executing a discovery scan. It queries Alpaca's free market movers screener to isolate the top gainers, filters them based on low-price momentum (typically $2.00 to $20.00 with a minimum 10% intraday gain), and then queries Polygon's API to analyze public free-float metrics. Tickers passing these supply filters are dynamically injected into the active trading watchlists.
 
 ### Stream Pipeline
+
 The stream pipeline is the real-time coordinator of the engine. It connects to Alpaca's high-frequency market data stream to receive 1-minute bars and Alpaca's trade execution stream to receive order status updates. When a new bar arrives, the pipeline passes it through a series of sequential filters: checking exit conditions first, broadcasting telemetry next, updating indicators, and finally evaluating new entry setups.
 
 ### Strategy Engine & Warmup
+
 At startup, the engine executes a warmup sequence. It pulls approximately three hours of historical 1-minute bars via Alpaca's historical data API for all watched symbols. These bars are parsed using Zod schemas and used to hydrate technical indicators (such as RSI, VWAP, and Relative Volume) inside individual strategy instances. Strategies are instantiated dynamically via a central `StrategyFactory` based on configuration mapping.
 
 ### Strategies
+
 Strategies define a set of criteria to signal to the engine whether or not to buy the stock. These criteria are written as individual functions to check key metrics, such as price range, momentum, bounce and pullback. These functions can be expanded to improve your strategy.
 
 The `.env` file lists all ACTIVE strategies by name, stocks to trade, stop-loss and take-profit margins, total equity risk, and age of trade. You must add your strategy name symbols to activate the strategy. The rest of the values are optional and have defaults, though it is recommended to set your own SL/TP margins and total equity for all strategies
 
-*Todo:* I am currently working on a way to optimize this as it scales up.
+`bullFlagMomentum` is an opt-in strategy that evaluates the existing Alpaca-supplied OHLCV history for a strong, high-volume pole; a two-to-five bar, lower-volume consolidation; and a volume-backed close above flag resistance. It rejects consolidations that retrace more than 50% of the pole and emits a `SELL` signal when a confirmed breakout promptly closes back below resistance. Its default parameters are centralized in `apps/engine/src/strategies/strategyConfig.ts`; the same parameter overrides are available to backtests through `strategyParameters`.
+
+Assign the strategy by setting `STRATEGY_<n>_NAME="bullFlagMomentum"` alongside its watchlist. Entry and exit trade-log records continue to use that symbol's watchlist strategy name, so bull-flag performance can be attributed through the application's existing trade-log filters.
+
+_Todo:_ I am currently working on a way to optimize this as it scales up.
 
 ### Position Manager & Risk Controls
+
 The Position Manager maintains an in-memory representation of the active portfolio, synchronized periodically with the broker. It monitors open positions against hardcoded or strategy-specific stop-loss (SL) and take-profit (TP) thresholds. It also tracks the "high-water mark" for each position to support trailing stop logic and manages temporary locks to prevent duplicate order submissions.
 
 ### Order Executor
+
 The Executor is a clean wrapper around the Alpaca REST API. It handles the mechanics of placing market buy orders and managing position liquidations. Before closing a position, the Executor queries the broker for any outstanding open orders associated with that ticker and cancels them to prevent execution conflicts. It also provides a global "kill switch" method to instantly liquidate all open positions and cancel all active orders.
 
 ---

@@ -6,6 +6,11 @@ import { ICriterionRule, RuleContext } from "./types";
 import { StrategyCriterion } from "../evaluateStrategy";
 import { getPremarketChange } from "../../functions/getPremarketChange";
 import { getPublicFreeFloat } from "../../functions/getFloat";
+import {
+  isBullFlagBreakout,
+  isBullFlagFakeout,
+  isBullFlagForming,
+} from "./bullFlag";
 
 export const StatelessRules: Partial<
   Record<StrategyCriterion, (ctx: RuleContext) => boolean | Promise<boolean>>
@@ -24,6 +29,12 @@ export const StatelessRules: Partial<
       ? checkForBounce({ sourceBar: priorBar, targetBar: bar })
       : false;
   },
+  isBullFlagForming: ({ history, parameters }) =>
+    isBullFlagForming(history, parameters),
+  isBullFlagBreakout: ({ history, parameters }) =>
+    isBullFlagBreakout(history, parameters),
+  isBullFlagFakeout: ({ history, parameters }) =>
+    isBullFlagFakeout(history, parameters),
   isBullish: ({ bar }) =>
     bar.close > bar.open &&
     (bar.close - bar.low) / (bar.high - bar.low) >= 0.65,

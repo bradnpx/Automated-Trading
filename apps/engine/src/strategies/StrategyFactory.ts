@@ -10,9 +10,11 @@ import { RSIReversion } from "./RSIReversion";
 import { SMACross } from "./SMACross";
 import { vixVWAPReversion } from "./vixVWAPReversion";
 import { StrategyParameterOverrides } from "./strategyConfig";
+import { BullFlagMomentum } from "./BullFlagMomentum";
 
 export type StrategyIdentifier =
   | "basicStrategy"
+  | "bullFlagMomentum"
   | "dayTradeMicroScalp"
   | "pdlSweepVWAPReclaim"
   | "biotechMomentum"
@@ -28,6 +30,7 @@ type StrategyCreator = (parameters: StrategyParameterOverrides) => IStrategy;
 export class StrategyFactory {
   private static registry: Record<StrategyIdentifier, StrategyCreator> = {
     basicStrategy: () => new BasicStrategy(),
+    bullFlagMomentum: (parameters) => new BullFlagMomentum(parameters),
     pdlSweepVWAPReclaim: () => new PDLSweepVWAPReclaim(),
     dayTradeMicroScalp: () => new DayTradeMicroScalp(),
     biotechMomentum: () => new BiotechMomentumStrategy(),
