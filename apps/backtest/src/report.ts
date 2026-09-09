@@ -1,6 +1,7 @@
 import { BacktestResult } from "./types.js";
 
 export function renderBacktestMarkdown(result: BacktestResult): string {
+  const criteria = Array.from(result.criteria);
   const metrics = result.metrics;
   const lines = [
     "# Backtest Report",
@@ -20,6 +21,13 @@ export function renderBacktestMarkdown(result: BacktestResult): string {
     `| Slippage per side | ${result.config.slippageBps.toFixed(2)} bps |`,
     `| Commission per order | ${formatCurrency(result.config.commissionPerOrder)} |`,
     `| Sizing method | ${result.config.positionSizingMethod} |`,
+    "",
+    "## Criteria",
+    "",
+    "| Criteria |",
+    "| ---: |",
+    // `| ${criteria} |`,
+    ...criteria.map((c) => `| ${c} |`),
     "",
     "## Performance",
     "",

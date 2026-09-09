@@ -80,6 +80,7 @@ export class EvaluateStrategy {
     options: StrategyEvaluationOptions = {},
   ): Promise<{
     meetsCriteria: boolean;
+    criteria?: StrategyCriterion[];
     report: Record<string, boolean>;
     metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
   }> {
@@ -173,6 +174,7 @@ export class EvaluateStrategy {
     return {
       meetsCriteria: criteriaToTest.every((key) => report[key] === true),
       report,
+      criteria: criteriaToTest,
       metrics: {
         rsi: context.metrics.rsi,
         vwap: criteriaToTest.includes("isBelowRollingVWAPWithDistance")

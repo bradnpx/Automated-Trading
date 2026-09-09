@@ -5,6 +5,7 @@ import {
 import {
   StrategyParameterOverrides,
 } from "../../engine/src/strategies/strategyConfig.js";
+import { StrategyCriterion } from "@/apps/engine/src/strategies/evaluateStrategy.js";
 
 export type IntrabarFillPriority = "stop-first" | "target-first";
 export type PositionSizingMethod = "risk-to-stop" | "equity-fraction";
@@ -103,6 +104,7 @@ export interface BacktestMetrics {
 
 export interface BacktestResult {
   config: ResolvedBacktestConfig;
+  criteria: StrategyCriterion[] | string;
   firstTimestamp: string;
   lastTimestamp: string;
   initialCash: number;
