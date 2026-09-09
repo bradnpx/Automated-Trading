@@ -8,6 +8,7 @@ import { BacktestConfig } from "./types.js";
 
 const STRATEGY_IDS = [
   "basicStrategy",
+  "bullFlagMomentum",
   "dayTradeMicroScalp",
   "pdlSweepVWAPReclaim",
   "biotechMomentum",
