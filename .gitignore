@@ -33,11 +33,12 @@ dist
 # Trade Logs
 apps/engine/logs/
 apps/engine/data/portfolio.json
+*.csv
 
 # Backtest and Historical Data
 apps/backtest/fixtures/
-backtest-results/
-data/alpaca
+apps/backtest/backtest-results/
+apps/backtest/data/
 
 # Debug
 npm-debug.log*

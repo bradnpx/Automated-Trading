@@ -20,7 +20,7 @@ export class BasicStrategy implements IStrategy {
   // Changed return layout from 'TradeSignal' to 'Promise<TradeSignal>' to satisfy async rules
   public async evaluateStrategy(
     bar: Bar,
-    options: StrategyEvaluationOptions = {},
+    options: StrategyEvaluationOptions = { consoleLogCriteria : true },
   ): Promise<TradeSignal> {
     try {
       // Execute rule checking suite dynamically against your defined checklist

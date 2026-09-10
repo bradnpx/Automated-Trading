@@ -81,7 +81,7 @@ function parseOptions(argumentsList: string[]): ExportOptions {
   }
 
   const defaultFilename = `${symbol.toLowerCase()}-${formatFileDate(start)}-to-${formatFileDate(end)}-${timeframe.toLowerCase()}.csv`;
-  const outputArgument = values.get("output") ?? path.join("data", "alpaca", defaultFilename);
+  const outputArgument = values.get("output") ?? path.join("apps", "backtest", "data", defaultFilename);
 
   return {
     symbol,

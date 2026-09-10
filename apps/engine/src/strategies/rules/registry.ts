@@ -53,6 +53,9 @@ export const StatelessRules: Partial<
     const float = await getPublicFreeFloat(bar.symbol);
     return float !== null && float < 25000000;
   },
+  // TODO: measure the drop from premarket to market
+  // isNotDownFromPremarket: ({ bar, metrics }) =>
+  //   (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.02,
   isNotExtended: ({ bar, metrics }) =>
     (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.02,
   isPennyStock: ({ bar }) => bar.close >= 1 && bar.close <= 10,

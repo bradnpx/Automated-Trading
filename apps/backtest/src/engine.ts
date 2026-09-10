@@ -18,6 +18,7 @@ import {
   SimulatedTrade,
 } from "./types.js";
 import { calculateMetrics } from "./metrics.js";
+import { StrategyCriterion } from "@/apps/engine/src/strategies/evaluateStrategy.js";
 
 export interface BacktestProgress {
   completedBars: number;
@@ -77,6 +78,7 @@ export class BacktestEngine {
 
     const progressInterval = Math.max(1, Math.ceil(sortedBars.length / 100));
 
+    let criteria: StrategyCriterion[] = []
     for (const [barIndex, bar] of sortedBars.entries()) {
       this.validateChronologicalBar(bar, state.latestPriceBySymbol);
       state.latestPriceBySymbol.set(bar.symbol, bar.close);
@@ -100,6 +102,7 @@ export class BacktestEngine {
         sortedBars,
         resolvedConfig,
       );
+      criteria = strategy.criteria ?? ['criteria not found']
       const signal = await strategy.evaluateStrategy(bar);
 
       if (signal.action === "SELL") {
@@ -173,11 +176,12 @@ export class BacktestEngine {
       initialCash: resolvedConfig.initialCash,
       turnoverNotional: state.turnoverNotional,
       exposedBars: state.exposedBars,
-      processedBars: state.processedBars,
+      processedBars: state.processedBars
     });
 
     return {
       config: resolvedConfig,
+      criteria: criteria,
       firstTimestamp: toIsoString(sortedBars[0].timestamp),
       lastTimestamp: toIsoString(finalBar.timestamp),
       initialCash: resolvedConfig.initialCash,

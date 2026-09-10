@@ -24,6 +24,7 @@ interface RunInputs {
   configPath: string;
   outputDirectory: string;
   description: string;
+  resultLabel: string;
 }
 
 async function main(): Promise<void> {
@@ -39,23 +40,25 @@ async function main(): Promise<void> {
     loadHistoricalData(runInputs.dataPath),
     loadBacktestConfig(runInputs.configPath),
   ]);
-
+  
   process.stdout.write(
     `Starting ${runInputs.description}: ${dataSet.bars.length.toLocaleString()} bars.\n`,
   );
+
   const result = await new BacktestEngine().run(dataSet.bars, config, {
     onProgress: renderProgress,
   });
+  const outputPath = [runInputs.configPath.split('\\').at(-1), runInputs.dataPath.split('\\').at(-1)].join("_");
 
   await mkdir(runInputs.outputDirectory, { recursive: true });
   await Promise.all([
     writeFile(
-      resolve(runInputs.outputDirectory, "result.json"),
+      resolve(runInputs.outputDirectory, `${runInputs.resultLabel}.json`),
       `${JSON.stringify({ ...result, dataSource: dataSet.source }, null, 2)}\n`,
       "utf8",
     ),
     writeFile(
-      resolve(runInputs.outputDirectory, "report.md"),
+      resolve(runInputs.outputDirectory, `${runInputs.resultLabel}.md`),
       renderBacktestMarkdown(result),
       "utf8",
     ),
@@ -75,13 +78,7 @@ function resolveRunInputs(
   const configPath = argumentsByName.get("config");
   const outputDirectory = argumentsByName.get("output");
 
-  if (strategy) {
-    if (dataPath || configPath) {
-      throw new Error(
-        "Use either --strategy or both --data and --config, not both modes",
-      );
-    }
-
+  if (strategy && dataPath) {
     const strategyId = readStrategyId({ strategyId: strategy }, "strategyId");
     const fixtureDirectory = resolve(
       inputRoot,
@@ -90,9 +87,15 @@ function resolveRunInputs(
       "fixtures",
       strategyId,
     );
+    const dataDirectory = resolve(
+      inputRoot,
+      "apps",
+      "backtest",
+      "data"
+    );
 
     return {
-      dataPath: resolve(fixtureDirectory, `${strategyId}.csv`),
+      dataPath: resolve(dataDirectory, `${dataPath}`),
       configPath: resolve(fixtureDirectory, `${strategyId}.json`),
       outputDirectory: resolve(
         inputRoot,
@@ -100,24 +103,13 @@ function resolveRunInputs(
         strategyId,
       ),
       description: `fixture strategy ${strategyId}`,
+      resultLabel: `${strategyId}_${dataPath.split('.')[0]}`
     };
-  }
-
-  if (!dataPath || !configPath) {
+  } else {
     throw new Error(
-      "Provide --strategy <strategyId>, or provide both --data and --config",
+      "Provide both --strategy <strategyId> and --data <pathToCsv>",
     );
   }
-
-  return {
-    dataPath: resolve(inputRoot, dataPath),
-    configPath: resolve(inputRoot, configPath),
-    outputDirectory: resolve(
-      inputRoot,
-      outputDirectory ?? "apps/backtest/backtest-results",
-    ),
-    description: "explicit data and configuration files",
-  };
 }
 
 function parseArguments(values: string[]): Map<string, string> {

@@ -3,6 +3,7 @@ import { Bar, TradeSignal } from "@my-platform/types";
 export interface StrategyEvaluationOptions {
   /** False evaluates the current live mark without adding a synthetic bar to indicator history. */
   recordBar?: boolean;
+  consoleLogCriteria?: boolean;
 }
 
 export interface IStrategy {

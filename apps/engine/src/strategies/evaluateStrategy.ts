@@ -31,6 +31,7 @@ export type StrategyCriterion =
   | "isInPriceRange"
   | "isInSession"
   | "isLowFloat"
+  | "isNotDownFromPremarket"
   | "isNotExtended"
   | "isPdlSweptAndReclaimed"
   | "isPennyStock"
@@ -80,6 +81,7 @@ export class EvaluateStrategy {
     options: StrategyEvaluationOptions = {},
   ): Promise<{
     meetsCriteria: boolean;
+    criteria?: StrategyCriterion[];
     report: Record<string, boolean>;
     metrics: { rsi: number; vwap: number; rvol: number; pendingSweep: boolean };
   }> {
@@ -170,9 +172,18 @@ export class EvaluateStrategy {
       "isPdlSweptAndReclaimed",
     ) as PdlSweptAndReclaimedRule;
 
+    const criteriaHits = Object.entries(report)
+      .map(([, value]) => (value ? "✅" : "❌"))
+      .join(" ");
+
+    if (options.consoleLogCriteria === true) {
+      console.log(`Evaluating strategy for ${bar.symbol}: ${criteriaHits}`);
+    }
+
     return {
       meetsCriteria: criteriaToTest.every((key) => report[key] === true),
       report,
+      criteria: criteriaToTest,
       metrics: {
         rsi: context.metrics.rsi,
         vwap: criteriaToTest.includes("isBelowRollingVWAPWithDistance")
