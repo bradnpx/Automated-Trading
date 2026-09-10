@@ -31,6 +31,7 @@ export type StrategyCriterion =
   | "isInPriceRange"
   | "isInSession"
   | "isLowFloat"
+  | "isNotDownFromPremarket"
   | "isNotExtended"
   | "isPdlSweptAndReclaimed"
   | "isPennyStock"
@@ -170,6 +171,14 @@ export class EvaluateStrategy {
     const pdlRule = this.rulesRegistry.get(
       "isPdlSweptAndReclaimed",
     ) as PdlSweptAndReclaimedRule;
+
+    const criteriaHits = Object.entries(report)
+      .map(([, value]) => (value ? "✅" : "❌"))
+      .join(" ");
+
+    if (options.consoleLogCriteria === true) {
+      console.log(`Evaluating strategy for ${bar.symbol}: ${criteriaHits}`);
+    }
 
     return {
       meetsCriteria: criteriaToTest.every((key) => report[key] === true),
