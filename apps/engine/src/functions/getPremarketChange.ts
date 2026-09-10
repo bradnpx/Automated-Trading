@@ -57,6 +57,7 @@ export async function getPremarketChange(symbol: string) {
     console.log(`Latest Minute Volume     : ${latestVolume}`);
 
     return {
+      premarketHigh: premarketData.premarketHigh,
       premarketVolume: premarketData.volume,
       percentageChange: percentageChange,
       volumePercentageChange: volumePercentageChange,

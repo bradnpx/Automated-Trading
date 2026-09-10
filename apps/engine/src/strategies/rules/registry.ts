@@ -4,7 +4,6 @@ import getTradingSession from "../../functions/getTradingSession";
 import checkForBounce from "../../functions/checkForBounce";
 import { ICriterionRule, RuleContext } from "./types";
 import { StrategyCriterion } from "../evaluateStrategy";
-import { getPremarketChange } from "../../functions/getPremarketChange";
 import { getPublicFreeFloat } from "../../functions/getFloat";
 import {
   isBullFlagBreakout,
@@ -53,9 +52,17 @@ export const StatelessRules: Partial<
     const float = await getPublicFreeFloat(bar.symbol);
     return float !== null && float < 25000000;
   },
-  // TODO: measure the drop from premarket to market
-  // isNotDownFromPremarket: ({ bar, metrics }) =>
-  //   (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.02,
+  isNotDownFromPremarket: async ({ bar, getPremarket }) => {
+    const data = await getPremarket();
+    const premarketHigh = data?.premarketHigh;
+
+    return (
+      typeof premarketHigh === "number" &&
+      Number.isFinite(premarketHigh) &&
+      premarketHigh > 0 &&
+      bar.close > premarketHigh * 0.9
+    );
+  },
   isNotExtended: ({ bar, metrics }) =>
     (bar.close - metrics.vwapTypical) / metrics.vwapTypical <= 0.02,
   isPennyStock: ({ bar }) => bar.close >= 1 && bar.close <= 10,
