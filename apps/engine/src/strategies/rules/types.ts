@@ -1,4 +1,5 @@
 import { Bar } from "@my-platform/types";
+import type { PremarketChange } from "../../functions/getPremarketChange";
 import { StrategyParameters } from "../strategyConfig";
 
 export interface RuleContext {
@@ -16,7 +17,7 @@ export interface RuleContext {
     readonly vwapClose: number;
     readonly vwapTypical: number;
   };
-  getPremarket: () => Promise<any>;
+  getPremarket: () => Promise<PremarketChange | null>;
 }
 
 export interface ICriterionRule {

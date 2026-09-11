@@ -32,7 +32,15 @@ function createContext(
       vwapTypical: close,
     },
     getPremarket: async () =>
-      premarketHigh === null ? null : { premarketHigh },
+      premarketHigh === null
+        ? null
+        : {
+            premarketHigh,
+            premarketVolume: 0,
+            percentageChange: 0,
+            volumePercentageChange: 0,
+            latestPrice: close,
+          },
   };
 }
 

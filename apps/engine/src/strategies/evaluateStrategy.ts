@@ -100,7 +100,11 @@ export class EvaluateStrategy {
 
     const getPremarket = async () => {
       if (!hasLoadedPremarket) {
-        premarketCache = await getPremarketChange(bar.symbol);
+        premarketCache = await getPremarketChange(
+          bar.symbol,
+          bar.close,
+          bar.volume,
+        );
         hasLoadedPremarket = true;
       }
       return premarketCache;
