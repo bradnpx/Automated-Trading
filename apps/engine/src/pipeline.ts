@@ -6,6 +6,7 @@ import {
   syncTrackingCaches,
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
+import getTradingSession from "./functions/getTradingSession.js";
 import type { StrategyEvaluationOptions } from "./strategies/IStrategy.js";
 
 type MarketTrade = {
@@ -27,6 +28,30 @@ type LiveBar = Bar & {
 };
 
 const SECOND_LEVEL_EVALUATION_INTERVAL_MS = 1_000;
+const PREMARKET_FALLBACK_EVALUATION_INTERVAL_MS = 60_000;
+const PREMARKET_STREAM_FRESHNESS_MS = 70_000;
+const PREMARKET_BAR_MAX_AGE_MS = 2 * 60_000;
+
+type AlpacaBar = {
+  Symbol?: string;
+  symbol?: string;
+  Timestamp?: string;
+  timestamp?: string;
+  OpenPrice?: number;
+  Open?: number;
+  open?: number;
+  HighPrice?: number;
+  High?: number;
+  high?: number;
+  LowPrice?: number;
+  Low?: number;
+  low?: number;
+  ClosePrice?: number;
+  Close?: number;
+  close?: number;
+  Volume?: number;
+  volume?: number;
+};
 
 /**
  * Combines completed one-minute bars (the persistent technical-indicator history)
@@ -38,7 +63,9 @@ export class StreamPipeline {
 
   private readonly subscribedSymbols = new Set<string>();
   private readonly liveBars = new Map<string, LiveBar>();
+  private readonly lastStreamDataAt = new Map<string, number>();
   private secondLevelEvaluationInFlight = false;
+  private premarketEvaluationInFlight = false;
 
   constructor(
     private alpaca: any,
@@ -93,11 +120,13 @@ export class StreamPipeline {
     marketStream.connect();
     tradeStream.connect();
     this.startSecondLevelEvaluationLoop();
+    this.startPremarketFallbackEvaluationLoop();
   }
 
   private async processCompletedBar(barData: unknown): Promise<void> {
     try {
       const bar = this.parseBar(barData);
+      this.lastStreamDataAt.set(bar.symbol, Date.now());
       this.posManager.updatePositionMark(bar.symbol, bar.close);
       this.broadcaster.broadcastBar(bar.symbol, bar.close);
 
@@ -105,7 +134,10 @@ export class StreamPipeline {
       if (await this.handleExits(bar.symbol, bar.close)) return;
 
       await this.handleScannerAndWarmup(bar);
-      await this.handleStrategyEntries(bar, { recordBar: true });
+      await this.handleStrategyEntries(bar, {
+        recordBar: true,
+        consoleLogCriteria: true,
+      });
 
       if (bar.symbol === "F") {
         await this.runTestBuy(bar.symbol);
@@ -130,6 +162,7 @@ export class StreamPipeline {
 
     if (!symbol || !price) return;
 
+    this.lastStreamDataAt.set(symbol, Date.now());
     this.updateLiveBar(symbol, price, size, timestamp);
     this.posManager.updatePositionMark(symbol, price);
     this.broadcaster.broadcastBar(symbol, price);
@@ -216,6 +249,101 @@ export class StreamPipeline {
     }, SECOND_LEVEL_EVALUATION_INTERVAL_MS);
   }
 
+  private startPremarketFallbackEvaluationLoop(): void {
+    void this.evaluatePremarketScannerSymbols();
+    setInterval(() => {
+      void this.evaluatePremarketScannerSymbols();
+    }, PREMARKET_FALLBACK_EVALUATION_INTERVAL_MS);
+  }
+
+  /**
+   * IEX can be sparse for premarket movers. Scanner-originated symbols are
+   * therefore evaluated once per minute from a recent latest bar when no stream
+   * event has arrived. With APCA_DATA_FEED=sip, the same fallback uses the SIP
+   * data feed for broader extended-hours coverage. Premarket BUY signals are
+   * logged for manual review and are never sent to the order executor here.
+   */
+  private async evaluatePremarketScannerSymbols(): Promise<void> {
+    if (
+      this.engineState.isKilled ||
+      this.premarketEvaluationInFlight ||
+      getTradingSession() !== "premarket"
+    ) {
+      return;
+    }
+
+    const scannerSymbols = Array.from(MASTER_WATCHLIST.values())
+      .filter((item) => item.source === "scanner")
+      .map((item) => item.symbol)
+      .filter(
+        (symbol) =>
+          !this.hasFreshStreamData(symbol) && this.strategies.has(symbol),
+      );
+    if (scannerSymbols.length === 0) return;
+
+    this.premarketEvaluationInFlight = true;
+    try {
+      const latestBars = await this.alpaca.getLatestBars(scannerSymbols);
+      for (const symbol of scannerSymbols) {
+        if (this.hasFreshStreamData(symbol)) continue;
+
+        const barData = latestBars?.get(symbol);
+        if (!barData) {
+          console.warn(
+            `⚠️ [PREMARKET] No latest bar available for scanner symbol ${symbol}; skipping evaluation.`,
+          );
+          continue;
+        }
+
+        const bar = this.parseBar({ ...barData, Symbol: symbol } as AlpacaBar);
+        if (!this.isRecentPremarketBar(bar)) {
+          console.warn(
+            `⚠️ [PREMARKET] Latest bar for scanner symbol ${symbol} is stale; skipping evaluation.`,
+          );
+          continue;
+        }
+
+        console.log(
+          `📊 [PREMARKET] Fallback evaluation for scanner symbol ${symbol} at $${bar.close.toFixed(2)}.`,
+        );
+        const strategy = this.strategies.get(symbol);
+        const signal = await strategy.evaluateStrategy(bar, {
+          recordBar: false,
+          consoleLogCriteria: true,
+        });
+        if (signal?.action === "BUY") {
+          console.log(
+            `⚠️ [PREMARKET] BUY signal for ${symbol} requires manual order review; automatic premarket order submission is disabled.`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error(
+        "❌ [PREMARKET] Scanner fallback evaluation failed:",
+        error,
+      );
+    } finally {
+      this.premarketEvaluationInFlight = false;
+    }
+  }
+
+  private hasFreshStreamData(symbol: string): boolean {
+    const lastReceivedAt = this.lastStreamDataAt.get(symbol);
+    return (
+      lastReceivedAt !== undefined &&
+      Date.now() - lastReceivedAt < PREMARKET_STREAM_FRESHNESS_MS
+    );
+  }
+
+  private isRecentPremarketBar(bar: Bar): boolean {
+    const timestamp = new Date(bar.timestamp).getTime();
+    return (
+      Number.isFinite(timestamp) &&
+      timestamp <= Date.now() &&
+      Date.now() - timestamp <= PREMARKET_BAR_MAX_AGE_MS
+    );
+  }
+
   /**
    * Evaluates each currently traded symbol at most once per second. The live candle
    * is deliberately non-persistent so one-minute historical indicators preserve
@@ -287,6 +415,7 @@ export class StreamPipeline {
       MASTER_WATCHLIST.set(bar.symbol, {
         symbol: bar.symbol,
         strategy: "dayTradeMicroScalp",
+        source: "scanner",
         stopLossPct: 5,
         takeProfitPct: 5,
         totalRisk: 0.01,
@@ -334,6 +463,13 @@ export class StreamPipeline {
       signal.action !== "BUY" ||
       !this.posManager.canOpenPosition(bar.symbol)
     ) {
+      return;
+    }
+
+    if (getTradingSession(bar.timestamp) !== "market") {
+      console.log(
+        `⚠️ [PREMARKET] BUY signal for ${bar.symbol} requires manual order review; automatic extended-hours order submission is disabled.`,
+      );
       return;
     }
 
