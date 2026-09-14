@@ -55,10 +55,10 @@ export default function Home() {
           <EquityChart />
           {/* <TradeHistory history={history} /> */}
         </div>
-        <div className="col-span-6">
+        <div className="col-span-12 xl:col-span-7">
           <TickerTable />
         </div>
-        <div className="col-span-6">
+        <div className="col-span-12 xl:col-span-5">
           <PortfolioTable />
         </div>
         <div className="col-span-12">

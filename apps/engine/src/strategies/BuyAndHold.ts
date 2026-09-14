@@ -1,9 +1,9 @@
 import { Bar, TradeSignal } from "@my-platform/types";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 
 /**
  * Buy-and-hold baseline: equal-weight target across all symbols, set once, held forever.
- * 
+ *
  * The benchmark every other strategy must justify its existence against. After the initial
  * allocation it emits no further signals (target weight unchanged), so turnover is just the
  * one rebalance. It's also the acceptance test for the whole pipeline.
@@ -15,7 +15,12 @@ export class BuyAndHold implements IStrategy {
     // Buy and hold doesn't need historical data to make its decision
   }
 
-  public evaluateStrategy(bar: Bar): TradeSignal {
+  public evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): TradeSignal {
+    options.onCriteriaEvaluated?.({ criteria: [], report: {} });
+
     if (!this._allocated) {
       this._allocated = true;
       return {

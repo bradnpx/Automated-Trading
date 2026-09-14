@@ -7,25 +7,39 @@ import {
   useMemo,
   ReactNode,
 } from "react";
-import { io, Socket } from "socket.io-client";
+import { io } from "socket.io-client";
 import {
   AccountPayload,
   HealthStatus,
   SOCKET_EVENTS,
   SocketBarPayload,
+  StrategyEvaluationPayload,
   TradeSignal,
 } from "@my-platform/types";
-import { create } from "domain";
 
-type TickerData = SocketBarPayload & { direction: "up" | "down" | "flat" };
+export interface TickerData {
+  symbol: string;
+  price?: number;
+  timestamp?: Date | string;
+  direction?: "up" | "down" | "flat";
+  strategyEvaluation?: StrategyEvaluationPayload;
+}
+
+type PortfolioPayload = Record<string, unknown>;
+
+interface ScannerAlertPayload {
+  symbol: string;
+  rvol: number;
+  timestamp: string;
+}
 
 interface SocketContextValue {
   health: HealthStatus | null;
   tableData: TickerData[];
   signals: TradeSignal[];
-  portfolio: any[];
+  portfolio: PortfolioPayload[];
   account: AccountPayload | null;
-  alerts: any[];
+  alerts: ScannerAlertPayload[];
   equityHistory: { time: string; equity: number }[];
   engineStatus: "ACTIVE" | "KILLED";
 }
@@ -35,10 +49,13 @@ const SocketContext = createContext<SocketContextValue | null>(null);
 export function SocketProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [tickerMap, setTickerMap] = useState<Record<string, TickerData>>({});
+  const [strategyEvaluationMap, setStrategyEvaluationMap] = useState<
+    Record<string, StrategyEvaluationPayload>
+  >({});
   const [signals, setSignals] = useState<TradeSignal[]>([]);
-  const [portfolio, setPortfolio] = useState<any[]>([]);
+  const [portfolio, setPortfolio] = useState<PortfolioPayload[]>([]);
   const [account, setAccount] = useState<AccountPayload | null>(null);
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<ScannerAlertPayload[]>([]);
   const [equityHistory, setEquityHistory] = useState<
     { time: string; equity: number }[]
   >([]);
@@ -79,6 +96,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       });
     });
 
+    socket.on(
+      SOCKET_EVENTS.STRATEGY_EVALUATION,
+      (evaluation: StrategyEvaluationPayload) => {
+        setStrategyEvaluationMap((previous) => ({
+          ...previous,
+          [evaluation.symbol]: evaluation,
+        }));
+      },
+    );
+
     socket.on(SOCKET_EVENTS.SIGNAL, (signal: TradeSignal) => {
       setSignals((prev) => [signal, ...prev].slice(0, 50));
     });
@@ -87,11 +114,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setEngineStatus(data.status);
     });
 
-    socket.on(SOCKET_EVENTS.UPDATE, (data: any[]) => {
+    socket.on(SOCKET_EVENTS.UPDATE, (data: PortfolioPayload[]) => {
       setPortfolio(data);
     });
 
-    socket.on(SOCKET_EVENTS.SCANNER, (data) => {
+    socket.on(SOCKET_EVENTS.SCANNER, (data: ScannerAlertPayload) => {
       setAlerts((prev) => [data, ...prev].slice(0, 5));
     });
 
@@ -115,7 +142,20 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const tableData = useMemo(() => Object.values(tickerMap), [tickerMap]);
+  const tableData = useMemo(() => {
+    const symbols = new Set([
+      ...Object.keys(tickerMap),
+      ...Object.keys(strategyEvaluationMap),
+    ]);
+
+    return Array.from(symbols)
+      .map((symbol) => ({
+        ...tickerMap[symbol],
+        symbol,
+        strategyEvaluation: strategyEvaluationMap[symbol],
+      }))
+      .sort((left, right) => left.symbol.localeCompare(right.symbol));
+  }, [strategyEvaluationMap, tickerMap]);
 
   const value: SocketContextValue = {
     health,

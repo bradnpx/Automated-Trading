@@ -9,6 +9,7 @@ export const SOCKET_EVENTS = {
   ACCOUNT: "account_update",
   SCANNER: "scanner_alert",
   HEALTH: "system_health",
+  STRATEGY_EVALUATION: "strategy_evaluation",
 } as const;
 
 export const OrderSchema = z.object({
@@ -43,6 +44,18 @@ export const TradeSignalSchema = z.object({
 });
 
 export type TradeSignal = z.infer<typeof TradeSignalSchema>;
+
+export interface CriterionStatus {
+  criterion: string;
+  passed: boolean;
+}
+
+export interface StrategyEvaluationPayload {
+  symbol: string;
+  strategy: string;
+  criteria: CriterionStatus[];
+  timestamp: string;
+}
 
 export interface SocketBarPayload {
   symbol: string;

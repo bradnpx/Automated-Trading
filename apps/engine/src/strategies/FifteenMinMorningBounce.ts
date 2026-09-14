@@ -25,6 +25,12 @@ export class FifteenMinMorningBounce implements IStrategy {
   ): Promise<TradeSignal> {
     try {
       if (!this.prevLow) {
+        options.onCriteriaEvaluated?.({
+          criteria: this.criteria,
+          report: Object.fromEntries(
+            this.criteria.map((criterion) => [criterion, false]),
+          ),
+        });
         return this.hold(
           bar,
           "Aborting execution: Missing verified Previous Day Low metric.",
