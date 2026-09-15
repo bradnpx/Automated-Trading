@@ -44,7 +44,7 @@ export class RSIReversion implements IStrategy {
       // Evaluate metrics, RSI is cached inside the evaluator context
       const verification = await this.evaluator.evaluate(
         bar,
-        [],
+        this.criteria,
         0,
         undefined,
         options,

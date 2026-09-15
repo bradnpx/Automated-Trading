@@ -1,7 +1,7 @@
 // src/strategies/pdl-vwap.ts
 import { Bar, TradeSignal } from "@my-platform/types";
 import { EvaluateStrategy, StrategyCriterion } from "./evaluateStrategy.js";
-import { IStrategy } from "./IStrategy.js";
+import { IStrategy, StrategyEvaluationOptions } from "./IStrategy.js";
 import { Internals } from "../modules/internals/internals.service.js";
 import { getPreviousDayStats } from "../functions/getPreviousDayData.js";
 
@@ -25,10 +25,19 @@ export class vixVWAPReversion implements IStrategy {
     this.evaluator.hydrate(bars);
   }
 
-  public async evaluateStrategy(bar: Bar): Promise<TradeSignal> {
+  public async evaluateStrategy(
+    bar: Bar,
+    options: StrategyEvaluationOptions = {},
+  ): Promise<TradeSignal> {
     try {
       this.internals.getCharts();
       if (!this.prevLow) {
+        options.onCriteriaEvaluated?.({
+          criteria: this.criteria,
+          report: Object.fromEntries(
+            this.criteria.map((criterion) => [criterion, false]),
+          ),
+        });
         return this.hold(
           bar,
           "Aborting execution: Missing verified Previous Day Low metric.",
@@ -42,6 +51,7 @@ export class vixVWAPReversion implements IStrategy {
         this.prevLow,
 
         { vix: this.internals.vix, tick: null },
+        options,
       );
       const { meetsCriteria, metrics } = verification;
 

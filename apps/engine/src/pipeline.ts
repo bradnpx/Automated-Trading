@@ -302,7 +302,22 @@ export class StreamPipeline {
     const strategy = this.strategies.get(bar.symbol);
     if (!strategy || this.engineState.isKilled) return;
 
-    const signal = await strategy.evaluateStrategy(bar, options);
+    const watchlistItem = MASTER_WATCHLIST.get(bar.symbol);
+    const signal = await strategy.evaluateStrategy(bar, {
+      ...options,
+      onCriteriaEvaluated: (evaluation) => {
+        options.onCriteriaEvaluated?.(evaluation);
+        this.broadcaster.broadcastStrategyEvaluation({
+          symbol: bar.symbol,
+          strategy: watchlistItem?.strategy ?? strategy.constructor.name,
+          criteria: evaluation.criteria.map((criterion) => ({
+            criterion,
+            passed: evaluation.report[criterion] === true,
+          })),
+          timestamp: new Date().toISOString(),
+        });
+      },
+    });
     if (!signal || typeof signal.action === "undefined") {
       console.error(
         `❌ Strategy Error: ${strategy.constructor.name} for ${bar.symbol} returned an invalid signal!`,

@@ -184,6 +184,11 @@ export class EvaluateStrategy {
       console.log(`Evaluating strategy for ${bar.symbol}: ${criteriaHits}`);
     }
 
+    options.onCriteriaEvaluated?.({
+      criteria: criteriaToTest,
+      report,
+    });
+
     return {
       meetsCriteria: criteriaToTest.every((key) => report[key] === true),
       report,
