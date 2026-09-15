@@ -1,5 +1,11 @@
 import { Server } from "socket.io";
-import { AccountPayload, HealthStatus, SOCKET_EVENTS } from "@my-platform/types";
+import {
+  AccountPayload,
+  HealthStatus,
+  PremarketMode,
+  PremarketOrderProposal,
+  SOCKET_EVENTS,
+} from "@my-platform/types";
 
 export class Broadcaster {
   private io: Server;
@@ -17,6 +23,17 @@ export class Broadcaster {
 
   broadcastSignal(signal: any) {
     this.io.emit(SOCKET_EVENTS.SIGNAL, signal);
+  }
+
+  broadcastPremarketMode(mode: PremarketMode) {
+    this.io.emit(SOCKET_EVENTS.PREMARKET_MODE, {
+      mode,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  broadcastPremarketOrderProposal(proposal: PremarketOrderProposal) {
+    this.io.emit(SOCKET_EVENTS.PREMARKET_ORDER_PROPOSAL, proposal);
   }
 
   broadcastStatus(status: "ACTIVE" | "KILLED") {

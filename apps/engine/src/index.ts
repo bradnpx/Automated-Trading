@@ -36,7 +36,11 @@ async function main() {
   const broadcaster = new Broadcaster(4000);
   const scanner = new Scanner();
   const strategies = new Map<string, any>();
-  const engineState = { isKilled: false };
+  const engineState = {
+    isKilled: false,
+    // Manual review generates proposals only; it never submits an order.
+    premarketMode: "evaluation_only" as const,
+  };
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
