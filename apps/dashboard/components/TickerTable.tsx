@@ -39,7 +39,6 @@ export default function TickerTable() {
     data: tableData,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    // Row ID is crucial for preventing unnecessary re-renders in real-time
     getRowId: (row) => row.symbol,
   });
 

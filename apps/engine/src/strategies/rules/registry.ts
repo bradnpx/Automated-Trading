@@ -60,7 +60,7 @@ export const StatelessRules: Partial<
       typeof premarketHigh === "number" &&
       Number.isFinite(premarketHigh) &&
       premarketHigh > 0 &&
-      bar.close > premarketHigh * 0.9
+      bar.close > premarketHigh * 0.9 // .9 means it's down 10%, .95 would be down 5%
     );
   },
   isNotExtended: ({ bar, metrics }) =>

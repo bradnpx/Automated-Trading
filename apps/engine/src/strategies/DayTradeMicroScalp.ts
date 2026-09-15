@@ -13,6 +13,7 @@ export class DayTradeMicroScalp implements IStrategy {
     "isHoldingVWAP",
     "isNotExtended",
     "isInPriceRange",
+    "isNotDownFromPremarket"
   ];
 
   public hydrate(bars: Bar[], prevLow?: number) {

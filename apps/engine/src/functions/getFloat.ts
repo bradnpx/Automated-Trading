@@ -26,10 +26,10 @@ export async function getPublicFreeFloat(
       modules: ["defaultKeyStatistics"],
     });
 
-    console.log(
-      `☀️yfinance float call for ${symbol} (${ticker}):`,
-      result.defaultKeyStatistics?.floatShares,
-    );
+    // console.log(
+    //   `☀️yfinance float call for ${symbol} (${ticker}):`,
+    //   result.defaultKeyStatistics?.floatShares,
+    // );
     return result.defaultKeyStatistics?.floatShares ?? null;
   } catch (error) {
     console.error(`Failed to fetch float for ${ticker}:`);

@@ -4,7 +4,7 @@ import {
   ALL_TRACKED_SYMBOLS,
   MASTER_WATCHLIST,
 } from "../config/config.js";
-import { StrategyFactory } from "../strategies/StrategyFactory.js";
+import { StrategyFactory, StrategyIdentifier } from "../strategies/StrategyFactory.js";
 import { getEasternTimeParts } from "../functions/getTradingSession.js";
 
 /**
@@ -88,7 +88,8 @@ export async function warmupStrategies(
 ): Promise<void> {
   // for (const symbol of ALL_TRACKED_SYMBOLS) {
   for (const [symbol, props] of MASTER_WATCHLIST) {
-    const targetStrategyKey = props.strategy;
+    const targetStrategyKey: StrategyIdentifier =
+      props.strategy as StrategyIdentifier;
 
     if (!targetStrategyKey) {
       console.warn(
