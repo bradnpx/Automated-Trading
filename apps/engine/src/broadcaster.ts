@@ -1,5 +1,10 @@
 import { Server } from "socket.io";
-import { AccountPayload, HealthStatus, SOCKET_EVENTS } from "@my-platform/types";
+import {
+  AccountPayload,
+  HealthStatus,
+  SOCKET_EVENTS,
+  StrategyEvaluationPayload,
+} from "@my-platform/types";
 
 export class Broadcaster {
   private io: Server;
@@ -17,6 +22,10 @@ export class Broadcaster {
 
   broadcastSignal(signal: any) {
     this.io.emit(SOCKET_EVENTS.SIGNAL, signal);
+  }
+
+  broadcastStrategyEvaluation(evaluation: StrategyEvaluationPayload) {
+    this.io.emit(SOCKET_EVENTS.STRATEGY_EVALUATION, evaluation);
   }
 
   broadcastStatus(status: "ACTIVE" | "KILLED") {

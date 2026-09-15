@@ -17,6 +17,7 @@ async function run(): Promise<void> {
   let subscribedBars: string[] = [];
   let subscribedTrades: string[] = [];
   let receivedSignal: Record<string, unknown> | undefined;
+  let receivedStrategyEvaluation: Record<string, unknown> | undefined;
   let evaluatedBar: Record<string, unknown> | undefined;
   let evaluationOptions: Record<string, unknown> | undefined;
   const markedPositions: Array<{ symbol: string; price: number }> = [];
@@ -65,10 +66,20 @@ async function run(): Promise<void> {
     hydrate() {},
     async evaluateStrategy(
       bar: Record<string, unknown>,
-      options: Record<string, unknown>,
+      options: {
+        recordBar?: boolean;
+        onCriteriaEvaluated?: (evaluation: {
+          criteria: string[];
+          report: Record<string, boolean>;
+        }) => void;
+      },
     ) {
       evaluatedBar = bar;
       evaluationOptions = options;
+      options.onCriteriaEvaluated?.({
+        criteria: ["isBullish", "isHoldingVWAP"],
+        report: { isBullish: true, isHoldingVWAP: false },
+      });
       return {
         symbol: "AAPL",
         action: "HOLD",
@@ -82,6 +93,9 @@ async function run(): Promise<void> {
     broadcastBar() {},
     broadcastSignal(signal: Record<string, unknown>) {
       receivedSignal = signal;
+    },
+    broadcastStrategyEvaluation(evaluation: Record<string, unknown>) {
+      receivedStrategyEvaluation = evaluation;
     },
     broadcastPortfolio() {},
   };
@@ -123,6 +137,15 @@ async function run(): Promise<void> {
     assert.equal(evaluatedBar?.close, 101.25);
     assert.equal(evaluationOptions?.recordBar, false);
     assert.equal(receivedSignal, undefined);
+    assert.deepEqual(receivedStrategyEvaluation, {
+      symbol: "AAPL",
+      strategy: "dayTradeMicroScalp",
+      criteria: [
+        { criterion: "isBullish", passed: true },
+        { criterion: "isHoldingVWAP", passed: false },
+      ],
+      timestamp: receivedStrategyEvaluation?.timestamp,
+    });
   } finally {
     MASTER_WATCHLIST.delete("AAPL");
     globalThis.setInterval = originalSetInterval;

@@ -25,15 +25,27 @@ async function run(): Promise<void> {
   evaluator.hydrate(historicalBars);
 
   const liveBar = createBar("2026-09-02T13:01:30.000Z", 102);
+  let criteriaEvaluation:
+    | { criteria: string[]; report: Record<string, boolean> }
+    | undefined;
   const result = await evaluator.evaluate(
     liveBar,
     ["isBullish"],
     0,
     undefined,
-    { recordBar: false },
+    {
+      recordBar: false,
+      onCriteriaEvaluated: (evaluation) => {
+        criteriaEvaluation = evaluation;
+      },
+    },
   );
 
   assert.equal(result.meetsCriteria, true);
+  assert.deepEqual(criteriaEvaluation, {
+    criteria: ["isBullish"],
+    report: { isBullish: true },
+  });
   assert.equal(
     Reflect.get(evaluator, "history").length,
     historicalBars.length,
