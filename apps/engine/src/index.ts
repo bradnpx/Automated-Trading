@@ -8,7 +8,11 @@ import { fileURLToPath } from "url";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { MASTER_WATCHLIST, syncTrackingCaches } from "./config/config.js";
+import {
+  ALPACA_DATA_FEED,
+  MASTER_WATCHLIST,
+  syncTrackingCaches,
+} from "./config/config.js";
 import { Scanner, bootstrapMarketSession } from "./scanner.js";
 import { startApiService } from "./api.js";
 import { StreamPipeline } from "./pipeline.js";
@@ -24,7 +28,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 async function main() {
   // INITIALIZATION LAYER
-  const alpaca = new Alpaca();
+  const alpaca = new Alpaca({ feed: ALPACA_DATA_FEED });
   const blacklist = await StockBlacklist.getInstance(30000);
   const posManager = new PositionManager(alpaca);
   await posManager.init();
@@ -32,7 +36,11 @@ async function main() {
   const broadcaster = new Broadcaster(4000);
   const scanner = new Scanner();
   const strategies = new Map<string, any>();
-  const engineState = { isKilled: false };
+  const engineState = {
+    isKilled: false,
+    // Manual review generates proposals only; it never submits an order.
+    premarketMode: "evaluation_only" as const,
+  };
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
@@ -45,6 +53,7 @@ async function main() {
         MASTER_WATCHLIST.set(symbol, {
           symbol,
           strategy: "dayTradeMicroScalp",
+          source: "scanner",
           stopLossPct: 5,
           takeProfitPct: 5,
         });

@@ -115,7 +115,7 @@ async function run(): Promise<void> {
     assert.deepEqual(subscribedBars, ["AAPL"]);
     assert.deepEqual(subscribedTrades, ["AAPL"]);
     assert.deepEqual(markedPositions, [{ symbol: "AAPL", price: 101.25 }]);
-    assert.equal(scheduledCallbacks.length, 1);
+    assert.equal(scheduledCallbacks.length, 2);
 
     scheduledCallbacks[0]();
     await new Promise((resolve) => setImmediate(resolve));

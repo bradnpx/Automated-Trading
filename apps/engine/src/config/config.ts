@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 export interface MasterWatchlistItem {
   symbol: string;
   strategy: string;
+  source?: "manual" | "scanner";
   takeProfitPct?: number;
   stopLossPct?: number;
   totalRisk?: number;
@@ -16,6 +17,8 @@ dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 const defaultRisk = process.env.RISK_PER_TRADE || 0.05;
 export const POLYGON_API = process.env.POLYGON_API_KEY;
+export const ALPACA_DATA_FEED =
+  process.env.APCA_DATA_FEED?.toLowerCase() === "sip" ? "sip" : "iex";
 export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
 export const ALL_TRACKED_SYMBOLS: string[] = [];
 export const GLOBAL_WATCHLIST: string[] = [];
@@ -73,14 +76,15 @@ function loadManualStrategiesFromEnv(): void {
       ? parseFloat(process.env[`${prefix}_TAKE_PROFIT`]!)
       : 2.2;
     const stopLoss = process.env[`${prefix}_STOP_LOSS`]
-    ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
-    : 2.0;
+      ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
+      : 2.0;
     const expiration = Number(process.env[`${prefix}_EXPIRATION`]);
 
     for (const symbol of tickers) {
       MASTER_WATCHLIST.set(symbol, {
         symbol,
         strategy: strategyName,
+        source: "manual",
         takeProfitPct: takeProfit,
         stopLossPct: stopLoss,
         totalRisk: totalRisk,

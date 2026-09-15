@@ -1,5 +1,6 @@
 import Alpaca from "@alpacahq/alpaca-trade-api";
 
+import { ALPACA_DATA_FEED } from "../config/config.js";
 import { getEasternTimeParts } from "./getTradingSession.js";
 
 const alpaca = new Alpaca();
@@ -128,7 +129,7 @@ async function fetchPremarketData(
     end: endIso,
     timeframe: "1Min",
     adjustment: "all",
-    feed: "iex",
+    feed: ALPACA_DATA_FEED,
   });
 
   const bars: AlpacaBar[] = [];
@@ -138,7 +139,7 @@ async function fetchPremarketData(
 
   if (bars.length === 0) {
     console.log(
-      `⚠️ No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern via Alpaca IEX.`,
+      `⚠️ No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern via Alpaca ${ALPACA_DATA_FEED.toUpperCase()}.`,
     );
     return null;
   }

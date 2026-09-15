@@ -5,12 +5,13 @@ import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
+import { PremarketMode } from "@my-platform/types";
 
 interface ApiConfig {
   posManager: PositionManager;
   executor: Executor;
   broadcaster: Broadcaster;
-  engineState: { isKilled: boolean };
+  engineState: { isKilled: boolean; premarketMode?: PremarketMode };
 }
 
 export function startApiService({
@@ -36,6 +37,28 @@ export function startApiService({
   // GET: Watchlist
   app.get("/watchlist", async (req, res) => {
     res.json(JSON.stringify(Object.fromEntries(MASTER_WATCHLIST)));
+  });
+
+  // GET: Current premarket display/review mode. This never changes order routing.
+  app.get("/premarket-mode", (_req, res) => {
+    res.json({
+      mode: engineState.premarketMode ?? "evaluation_only",
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  // POST: Switch between evaluation-only and non-submitting manual-review proposals.
+  app.post("/premarket-mode", (req, res) => {
+    const mode = req.body?.mode;
+    if (mode !== "evaluation_only" && mode !== "manual_review") {
+      return res.status(400).json({
+        error: "mode must be either evaluation_only or manual_review",
+      });
+    }
+
+    engineState.premarketMode = mode;
+    broadcaster.broadcastPremarketMode(mode);
+    res.status(200).json({ mode, updatedAt: new Date().toISOString() });
   });
 
   // POST: Reset Engine Kill Switch

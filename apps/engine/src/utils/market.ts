@@ -1,5 +1,6 @@
 import { BarSchema } from "@my-platform/types";
 import {
+  ALPACA_DATA_FEED,
   TRADING_CONFIG,
   ALL_TRACKED_SYMBOLS,
   MASTER_WATCHLIST,
@@ -102,12 +103,16 @@ export async function warmupStrategies(
     );
 
     try {
+      const warmupEnd = new Date(
+        Date.now() - (ALPACA_DATA_FEED === "iex" ? 1000 * 60 * 16 : 0),
+      );
+
       // Fetch last ~3 hours of 1-min bars for indicator warmup
       const gen = alpaca.getBarsV2(symbol, {
         start: new Date(Date.now() - 1000 * 60 * 200).toISOString(), // ~3 hours ago
-        end: new Date(Date.now() - 1000 * 60 * 16).toISOString(), // 16 mins delay layout for free IEX tier
+        end: warmupEnd.toISOString(),
         timeframe: alpaca.newTimeframe(1, alpaca.timeframeUnit.MIN),
-        feed: "iex",
+        feed: ALPACA_DATA_FEED,
       });
 
       const rawBars = await barsToArray(gen);

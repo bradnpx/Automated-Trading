@@ -1,4 +1,10 @@
-import { Bar, BarSchema } from "@my-platform/types";
+import {
+  Bar,
+  BarSchema,
+  PremarketMode,
+  PremarketOrderProposal,
+  TradeSignal,
+} from "@my-platform/types";
 
 import {
   MASTER_WATCHLIST,
@@ -6,6 +12,7 @@ import {
   syncTrackingCaches,
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
+import getTradingSession from "./functions/getTradingSession.js";
 import type { StrategyEvaluationOptions } from "./strategies/IStrategy.js";
 
 type MarketTrade = {
@@ -27,6 +34,31 @@ type LiveBar = Bar & {
 };
 
 const SECOND_LEVEL_EVALUATION_INTERVAL_MS = 1_000;
+const PREMARKET_FALLBACK_EVALUATION_INTERVAL_MS = 60_000;
+const PREMARKET_STREAM_FRESHNESS_MS = 70_000;
+const PREMARKET_BAR_MAX_AGE_MS = 2 * 60_000;
+const PREMARKET_PROPOSAL_LIMIT_BUFFER_PCT = 0.005;
+
+type AlpacaBar = {
+  Symbol?: string;
+  symbol?: string;
+  Timestamp?: string;
+  timestamp?: string;
+  OpenPrice?: number;
+  Open?: number;
+  open?: number;
+  HighPrice?: number;
+  High?: number;
+  high?: number;
+  LowPrice?: number;
+  Low?: number;
+  low?: number;
+  ClosePrice?: number;
+  Close?: number;
+  close?: number;
+  Volume?: number;
+  volume?: number;
+};
 
 /**
  * Combines completed one-minute bars (the persistent technical-indicator history)
@@ -38,7 +70,9 @@ export class StreamPipeline {
 
   private readonly subscribedSymbols = new Set<string>();
   private readonly liveBars = new Map<string, LiveBar>();
+  private readonly lastStreamDataAt = new Map<string, number>();
   private secondLevelEvaluationInFlight = false;
+  private premarketEvaluationInFlight = false;
 
   constructor(
     private alpaca: any,
@@ -47,7 +81,7 @@ export class StreamPipeline {
     private broadcaster: any,
     private scanner: any,
     private strategies: Map<string, any>,
-    private engineState: { isKilled: boolean },
+    private engineState: { isKilled: boolean; premarketMode?: PremarketMode },
   ) {}
 
   public initialize(): void {
@@ -93,11 +127,13 @@ export class StreamPipeline {
     marketStream.connect();
     tradeStream.connect();
     this.startSecondLevelEvaluationLoop();
+    this.startPremarketFallbackEvaluationLoop();
   }
 
   private async processCompletedBar(barData: unknown): Promise<void> {
     try {
       const bar = this.parseBar(barData);
+      this.lastStreamDataAt.set(bar.symbol, Date.now());
       this.posManager.updatePositionMark(bar.symbol, bar.close);
       this.broadcaster.broadcastBar(bar.symbol, bar.close);
 
@@ -105,7 +141,10 @@ export class StreamPipeline {
       if (await this.handleExits(bar.symbol, bar.close)) return;
 
       await this.handleScannerAndWarmup(bar);
-      await this.handleStrategyEntries(bar, { recordBar: true });
+      await this.handleStrategyEntries(bar, {
+        recordBar: true,
+        consoleLogCriteria: true,
+      });
 
       if (bar.symbol === "F") {
         await this.runTestBuy(bar.symbol);
@@ -130,6 +169,7 @@ export class StreamPipeline {
 
     if (!symbol || !price) return;
 
+    this.lastStreamDataAt.set(symbol, Date.now());
     this.updateLiveBar(symbol, price, size, timestamp);
     this.posManager.updatePositionMark(symbol, price);
     this.broadcaster.broadcastBar(symbol, price);
@@ -216,6 +256,99 @@ export class StreamPipeline {
     }, SECOND_LEVEL_EVALUATION_INTERVAL_MS);
   }
 
+  private startPremarketFallbackEvaluationLoop(): void {
+    void this.evaluatePremarketScannerSymbols();
+    setInterval(() => {
+      void this.evaluatePremarketScannerSymbols();
+    }, PREMARKET_FALLBACK_EVALUATION_INTERVAL_MS);
+  }
+
+  /**
+   * IEX can be sparse for premarket movers. Scanner-originated symbols are
+   * therefore evaluated once per minute from a recent latest bar when no stream
+   * event has arrived. With APCA_DATA_FEED=sip, the same fallback uses the SIP
+   * data feed for broader extended-hours coverage. BUY signals remain
+   * non-submitting: manual-review mode emits an order proposal only.
+   */
+  private async evaluatePremarketScannerSymbols(): Promise<void> {
+    if (
+      this.engineState.isKilled ||
+      this.premarketEvaluationInFlight ||
+      getTradingSession() !== "premarket"
+    ) {
+      return;
+    }
+
+    const scannerSymbols = Array.from(MASTER_WATCHLIST.values())
+      .filter((item) => item.source === "scanner")
+      .map((item) => item.symbol)
+      .filter(
+        (symbol) =>
+          !this.hasFreshStreamData(symbol) && this.strategies.has(symbol),
+      );
+    if (scannerSymbols.length === 0) return;
+
+    this.premarketEvaluationInFlight = true;
+    try {
+      const latestBars = await this.alpaca.getLatestBars(scannerSymbols);
+      for (const symbol of scannerSymbols) {
+        if (this.hasFreshStreamData(symbol)) continue;
+
+        const barData = latestBars?.get(symbol);
+        if (!barData) {
+          console.warn(
+            `⚠️ [PREMARKET] No latest bar available for scanner symbol ${symbol}; skipping evaluation.`,
+          );
+          continue;
+        }
+
+        const bar = this.parseBar({ ...barData, Symbol: symbol } as AlpacaBar);
+        if (!this.isRecentPremarketBar(bar)) {
+          console.warn(
+            `⚠️ [PREMARKET] Latest bar for scanner symbol ${symbol} is stale; skipping evaluation.`,
+          );
+          continue;
+        }
+
+        console.log(
+          `📊 [PREMARKET] Fallback evaluation for scanner symbol ${symbol} at $${bar.close.toFixed(2)}.`,
+        );
+        const strategy = this.strategies.get(symbol);
+        const signal = await strategy.evaluateStrategy(bar, {
+          recordBar: false,
+          consoleLogCriteria: true,
+        });
+        if (signal?.action === "BUY") {
+          await this.reportPremarketBuySignal(bar, signal);
+        }
+      }
+    } catch (error) {
+      console.error(
+        "❌ [PREMARKET] Scanner fallback evaluation failed:",
+        error,
+      );
+    } finally {
+      this.premarketEvaluationInFlight = false;
+    }
+  }
+
+  private hasFreshStreamData(symbol: string): boolean {
+    const lastReceivedAt = this.lastStreamDataAt.get(symbol);
+    return (
+      lastReceivedAt !== undefined &&
+      Date.now() - lastReceivedAt < PREMARKET_STREAM_FRESHNESS_MS
+    );
+  }
+
+  private isRecentPremarketBar(bar: Bar): boolean {
+    const timestamp = new Date(bar.timestamp).getTime();
+    return (
+      Number.isFinite(timestamp) &&
+      timestamp <= Date.now() &&
+      Date.now() - timestamp <= PREMARKET_BAR_MAX_AGE_MS
+    );
+  }
+
   /**
    * Evaluates each currently traded symbol at most once per second. The live candle
    * is deliberately non-persistent so one-minute historical indicators preserve
@@ -287,6 +420,7 @@ export class StreamPipeline {
       MASTER_WATCHLIST.set(bar.symbol, {
         symbol: bar.symbol,
         strategy: "dayTradeMicroScalp",
+        source: "scanner",
         stopLossPct: 5,
         takeProfitPct: 5,
         totalRisk: 0.01,
@@ -337,6 +471,18 @@ export class StreamPipeline {
       return;
     }
 
+    const session = getTradingSession(bar.timestamp);
+    if (session !== "market") {
+      if (session === "premarket") {
+        await this.reportPremarketBuySignal(bar, signal);
+      } else {
+        console.log(
+          `⚠️ [SESSION] BUY signal for ${bar.symbol} outside regular market hours; automatic order submission is disabled.`,
+        );
+      }
+      return;
+    }
+
     this.posManager.markPendingBuy(bar.symbol);
     try {
       const risk =
@@ -361,6 +507,79 @@ export class StreamPipeline {
       console.error(`❌ Execution error for ${bar.symbol}:`, error);
       this.posManager.clearPendingBuy(bar.symbol);
     }
+  }
+
+  /**
+   * Emits a user-reviewable limit-order proposal only. This method deliberately
+   * does not call the executor or any broker write API.
+   */
+  private async reportPremarketBuySignal(
+    bar: Bar,
+    signal: TradeSignal,
+  ): Promise<void> {
+    if (this.engineState.premarketMode !== "manual_review") {
+      console.log(
+        `⚠️ [PREMARKET] BUY signal for ${bar.symbol} recorded in evaluation-only mode; no order proposal was created.`,
+      );
+      return;
+    }
+
+    if (!this.posManager.canOpenPosition(bar.symbol)) {
+      console.log(
+        `ℹ️ [PREMARKET] BUY signal for ${bar.symbol} is not eligible for a new-position proposal.`,
+      );
+      return;
+    }
+
+    const proposal = await this.createPremarketOrderProposal(bar, signal);
+    if (!proposal) return;
+
+    this.broadcaster.broadcastPremarketOrderProposal(proposal);
+    console.log(
+      `📝 [PREMARKET] Manual-review proposal created for ${proposal.symbol}: ${proposal.quantity} shares limit $${proposal.limitPrice.toFixed(2)}. No order was submitted.`,
+    );
+  }
+
+  private async createPremarketOrderProposal(
+    bar: Bar,
+    signal: TradeSignal,
+  ): Promise<PremarketOrderProposal | null> {
+    const referencePrice = bar.close;
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
+      console.warn(
+        `⚠️ [PREMARKET] Cannot create an order proposal for ${bar.symbol}: invalid reference price.`,
+      );
+      return null;
+    }
+
+    const limitPrice = Number(
+      (referencePrice * (1 + PREMARKET_PROPOSAL_LIMIT_BUFFER_PCT)).toFixed(2),
+    );
+    const riskPct =
+      MASTER_WATCHLIST.get(bar.symbol)?.totalRisk ??
+      TRADING_CONFIG.RISK_PER_TRADE;
+    const equity = await this.posManager.getOrFetchEquity();
+    const quantity = Math.floor((equity * riskPct) / limitPrice);
+
+    if (!Number.isFinite(quantity) || quantity < 1) {
+      console.warn(
+        `⚠️ [PREMARKET] Cannot create an order proposal for ${bar.symbol}: risk budget does not cover one share at $${limitPrice.toFixed(2)}.`,
+      );
+      return null;
+    }
+
+    return {
+      symbol: bar.symbol,
+      strategy: MASTER_WATCHLIST.get(bar.symbol)?.strategy ?? "UnknownStrategy",
+      reason: signal.reason,
+      referencePrice,
+      limitPrice,
+      quantity,
+      riskPct,
+      timeInForce: "day",
+      extendedHours: true,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   private async runTestBuy(symbol: string): Promise<void> {

@@ -1,5 +1,9 @@
 import { bootstrapMarketSession } from "../scanner.js";
-import { MASTER_WATCHLIST, syncTrackingCaches } from "../config/config.js";
+import {
+  ALPACA_DATA_FEED,
+  MASTER_WATCHLIST,
+  syncTrackingCaches,
+} from "../config/config.js";
 import { StrategyFactory } from "../strategies/StrategyFactory.js";
 
 const HYDRATION_MINUTES = 30;
@@ -20,6 +24,7 @@ export async function executeDynamicScannerSweep(
         MASTER_WATCHLIST.set(symbol, {
           symbol,
           strategy: "dayTradeMicroScalp",
+          source: "scanner",
           stopLossPct: 5,
           takeProfitPct: 5,
         });
@@ -47,7 +52,7 @@ export async function executeDynamicScannerSweep(
             start: start.toISOString(),
             end: now.toISOString(),
             timeframe: "1Min",
-            feed: "iex",
+            feed: ALPACA_DATA_FEED,
           });
 
           const historicalBars: any[] = [];
@@ -73,15 +78,17 @@ export async function executeDynamicScannerSweep(
             const latestBarsMap = await alpaca.getLatestBars([symbol]);
             if (latestBarsMap && latestBarsMap.has(symbol)) {
               const b = latestBarsMap.get(symbol);
-              strategyInstance.hydrate([{
-                symbol,
-                open: b.OpenPrice,
-                high: b.HighPrice,
-                low: b.LowPrice,
-                close: b.ClosePrice,
-                volume: b.Volume,
-                timestamp: b.Timestamp,
-              }]);
+              strategyInstance.hydrate([
+                {
+                  symbol,
+                  open: b.OpenPrice,
+                  high: b.HighPrice,
+                  low: b.LowPrice,
+                  close: b.ClosePrice,
+                  volume: b.Volume,
+                  timestamp: b.Timestamp,
+                },
+              ]);
               console.warn(
                 `⚠️[WARMUP] No range bars found for ${symbol}; fell back to single latest bar.`,
               );

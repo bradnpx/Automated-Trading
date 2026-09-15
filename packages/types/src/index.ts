@@ -9,6 +9,8 @@ export const SOCKET_EVENTS = {
   ACCOUNT: "account_update",
   SCANNER: "scanner_alert",
   HEALTH: "system_health",
+  PREMARKET_MODE: "premarket_mode",
+  PREMARKET_ORDER_PROPOSAL: "premarket_order_proposal",
 } as const;
 
 export const OrderSchema = z.object({
@@ -43,6 +45,30 @@ export const TradeSignalSchema = z.object({
 });
 
 export type TradeSignal = z.infer<typeof TradeSignalSchema>;
+
+export type PremarketMode = "evaluation_only" | "manual_review";
+
+export interface PremarketModePayload {
+  mode: PremarketMode;
+  updatedAt: string;
+}
+
+/**
+ * A non-submitting order proposal for user review. This payload is not an
+ * Alpaca order request and must never be treated as evidence of an order.
+ */
+export interface PremarketOrderProposal {
+  symbol: string;
+  strategy: string;
+  reason: string;
+  referencePrice: number;
+  limitPrice: number;
+  quantity: number;
+  riskPct: number;
+  timeInForce: "day";
+  extendedHours: true;
+  generatedAt: string;
+}
 
 export interface SocketBarPayload {
   symbol: string;
