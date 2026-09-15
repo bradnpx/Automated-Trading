@@ -9,6 +9,8 @@ import TradeHistory from "@/components/TradeLogs/TradeHistory";
 import ScannerAlerts from "@/components/ScannerAlerts";
 import HealthMonitor from "@/components/HealthMonitor";
 import Nav from "@/components/Navigation";
+import PremarketModeControl from "@/components/PremarketModeControl";
+import PremarketOrderProposals from "@/components/PremarketOrderProposals";
 import { fetchTradeHistory } from "@/lib/fetchTradeHistory";
 import { useState, useEffect } from "react";
 
@@ -54,6 +56,12 @@ export default function Home() {
           <AccountSummary />
           <EquityChart />
           {/* <TradeHistory history={history} /> */}
+        </div>
+        <div className="col-span-12 xl:col-span-7">
+          <PremarketModeControl />
+        </div>
+        <div className="col-span-12 xl:col-span-5">
+          <PremarketOrderProposals />
         </div>
         <div className="col-span-6">
           <TickerTable />

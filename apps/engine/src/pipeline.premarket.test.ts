@@ -28,6 +28,7 @@ async function run(): Promise<void> {
   let evaluations = 0;
   let receivedOptions: Record<string, unknown> | undefined;
   let submittedOrders = 0;
+  let receivedProposal: Record<string, unknown> | undefined;
 
   const marketStream = {
     onConnect() {},
@@ -51,6 +52,7 @@ async function run(): Promise<void> {
     checkExitConditions: () => ({ shouldExit: false, reason: "" }),
     hasPendingExit: () => false,
     canOpenPosition: () => true,
+    getOrFetchEquity: () => 1_000,
     getPositions: () => [],
   };
   const strategy = {
@@ -74,9 +76,14 @@ async function run(): Promise<void> {
     symbol: "SCAN",
     strategy: "dayTradeMicroScalp",
     source: "scanner",
+    totalRisk: 0.05,
   });
 
   try {
+    const engineState: {
+      isKilled: boolean;
+      premarketMode?: "evaluation_only" | "manual_review";
+    } = { isKilled: false };
     const pipeline = new StreamPipeline(
       {
         data_stream_v2: marketStream,
@@ -106,11 +113,14 @@ async function run(): Promise<void> {
       {
         broadcastBar() {},
         broadcastSignal() {},
+        broadcastPremarketOrderProposal(proposal: Record<string, unknown>) {
+          receivedProposal = proposal;
+        },
         broadcastPortfolio() {},
       },
       undefined,
       new Map([["SCAN", strategy]]),
-      { isKilled: false },
+      engineState,
     );
 
     pipeline.initialize();
@@ -122,7 +132,31 @@ async function run(): Promise<void> {
       consoleLogCriteria: true,
     });
     assert.equal(submittedOrders, 0);
+    assert.equal(
+      receivedProposal,
+      undefined,
+      "Evaluation-only mode must never emit a manual-review proposal.",
+    );
     assert.equal(scheduledCallbacks.length, 2);
+
+    engineState.premarketMode = "manual_review";
+    scheduledCallbacks[1]();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(evaluations, 2);
+    assert.equal(submittedOrders, 0);
+    assert.deepEqual(receivedProposal, {
+      symbol: "SCAN",
+      strategy: "dayTradeMicroScalp",
+      reason: "test signal",
+      referencePrice: 5.2,
+      limitPrice: 5.23,
+      quantity: 9,
+      riskPct: 0.05,
+      timeInForce: "day",
+      extendedHours: true,
+      generatedAt: FIXED_PREMARKET_TIME.toISOString(),
+    });
   } finally {
     MASTER_WATCHLIST.delete("SCAN");
     globalThis.setInterval = originalSetInterval;

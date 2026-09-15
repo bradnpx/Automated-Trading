@@ -1,4 +1,10 @@
-import { Bar, BarSchema } from "@my-platform/types";
+import {
+  Bar,
+  BarSchema,
+  PremarketMode,
+  PremarketOrderProposal,
+  TradeSignal,
+} from "@my-platform/types";
 
 import {
   MASTER_WATCHLIST,
@@ -31,6 +37,7 @@ const SECOND_LEVEL_EVALUATION_INTERVAL_MS = 1_000;
 const PREMARKET_FALLBACK_EVALUATION_INTERVAL_MS = 60_000;
 const PREMARKET_STREAM_FRESHNESS_MS = 70_000;
 const PREMARKET_BAR_MAX_AGE_MS = 2 * 60_000;
+const PREMARKET_PROPOSAL_LIMIT_BUFFER_PCT = 0.005;
 
 type AlpacaBar = {
   Symbol?: string;
@@ -74,7 +81,7 @@ export class StreamPipeline {
     private broadcaster: any,
     private scanner: any,
     private strategies: Map<string, any>,
-    private engineState: { isKilled: boolean },
+    private engineState: { isKilled: boolean; premarketMode?: PremarketMode },
   ) {}
 
   public initialize(): void {
@@ -260,8 +267,8 @@ export class StreamPipeline {
    * IEX can be sparse for premarket movers. Scanner-originated symbols are
    * therefore evaluated once per minute from a recent latest bar when no stream
    * event has arrived. With APCA_DATA_FEED=sip, the same fallback uses the SIP
-   * data feed for broader extended-hours coverage. Premarket BUY signals are
-   * logged for manual review and are never sent to the order executor here.
+   * data feed for broader extended-hours coverage. BUY signals remain
+   * non-submitting: manual-review mode emits an order proposal only.
    */
   private async evaluatePremarketScannerSymbols(): Promise<void> {
     if (
@@ -312,9 +319,7 @@ export class StreamPipeline {
           consoleLogCriteria: true,
         });
         if (signal?.action === "BUY") {
-          console.log(
-            `⚠️ [PREMARKET] BUY signal for ${symbol} requires manual order review; automatic premarket order submission is disabled.`,
-          );
+          await this.reportPremarketBuySignal(bar, signal);
         }
       }
     } catch (error) {
@@ -466,10 +471,15 @@ export class StreamPipeline {
       return;
     }
 
-    if (getTradingSession(bar.timestamp) !== "market") {
-      console.log(
-        `⚠️ [PREMARKET] BUY signal for ${bar.symbol} requires manual order review; automatic extended-hours order submission is disabled.`,
-      );
+    const session = getTradingSession(bar.timestamp);
+    if (session !== "market") {
+      if (session === "premarket") {
+        await this.reportPremarketBuySignal(bar, signal);
+      } else {
+        console.log(
+          `⚠️ [SESSION] BUY signal for ${bar.symbol} outside regular market hours; automatic order submission is disabled.`,
+        );
+      }
       return;
     }
 
@@ -497,6 +507,79 @@ export class StreamPipeline {
       console.error(`❌ Execution error for ${bar.symbol}:`, error);
       this.posManager.clearPendingBuy(bar.symbol);
     }
+  }
+
+  /**
+   * Emits a user-reviewable limit-order proposal only. This method deliberately
+   * does not call the executor or any broker write API.
+   */
+  private async reportPremarketBuySignal(
+    bar: Bar,
+    signal: TradeSignal,
+  ): Promise<void> {
+    if (this.engineState.premarketMode !== "manual_review") {
+      console.log(
+        `⚠️ [PREMARKET] BUY signal for ${bar.symbol} recorded in evaluation-only mode; no order proposal was created.`,
+      );
+      return;
+    }
+
+    if (!this.posManager.canOpenPosition(bar.symbol)) {
+      console.log(
+        `ℹ️ [PREMARKET] BUY signal for ${bar.symbol} is not eligible for a new-position proposal.`,
+      );
+      return;
+    }
+
+    const proposal = await this.createPremarketOrderProposal(bar, signal);
+    if (!proposal) return;
+
+    this.broadcaster.broadcastPremarketOrderProposal(proposal);
+    console.log(
+      `📝 [PREMARKET] Manual-review proposal created for ${proposal.symbol}: ${proposal.quantity} shares limit $${proposal.limitPrice.toFixed(2)}. No order was submitted.`,
+    );
+  }
+
+  private async createPremarketOrderProposal(
+    bar: Bar,
+    signal: TradeSignal,
+  ): Promise<PremarketOrderProposal | null> {
+    const referencePrice = bar.close;
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
+      console.warn(
+        `⚠️ [PREMARKET] Cannot create an order proposal for ${bar.symbol}: invalid reference price.`,
+      );
+      return null;
+    }
+
+    const limitPrice = Number(
+      (referencePrice * (1 + PREMARKET_PROPOSAL_LIMIT_BUFFER_PCT)).toFixed(2),
+    );
+    const riskPct =
+      MASTER_WATCHLIST.get(bar.symbol)?.totalRisk ??
+      TRADING_CONFIG.RISK_PER_TRADE;
+    const equity = await this.posManager.getOrFetchEquity();
+    const quantity = Math.floor((equity * riskPct) / limitPrice);
+
+    if (!Number.isFinite(quantity) || quantity < 1) {
+      console.warn(
+        `⚠️ [PREMARKET] Cannot create an order proposal for ${bar.symbol}: risk budget does not cover one share at $${limitPrice.toFixed(2)}.`,
+      );
+      return null;
+    }
+
+    return {
+      symbol: bar.symbol,
+      strategy: MASTER_WATCHLIST.get(bar.symbol)?.strategy ?? "UnknownStrategy",
+      reason: signal.reason,
+      referencePrice,
+      limitPrice,
+      quantity,
+      riskPct,
+      timeInForce: "day",
+      extendedHours: true,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   private async runTestBuy(symbol: string): Promise<void> {
