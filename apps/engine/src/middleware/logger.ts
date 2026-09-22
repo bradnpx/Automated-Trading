@@ -66,6 +66,27 @@ export async function getTradeHistory() {
   }
 }
 
+/**
+ * Uses the application's trade logs as the source of truth for a symbol's
+ * strategy attribution. Broker order data does not carry this association.
+ */
+export async function getTradeLogStrategy(symbol: string): Promise<string> {
+  const history = await getTradeHistory();
+
+  for (const trade of [...history].reverse()) {
+    if (
+      trade.symbol === symbol &&
+      typeof trade.reason === "string" &&
+      trade.reason !== "Exit" &&
+      trade.reason !== "UnknownStrategy"
+    ) {
+      return trade.reason;
+    }
+  }
+
+  return "Strategy not recorded";
+}
+
 export async function calculateWinRateMetrics(): Promise<WinRateReport> {
   const history = await getTradeHistory();
 

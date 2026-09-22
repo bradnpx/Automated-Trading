@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [],
+  "files": [
+    "app/api/notifications/[action]/route.ts",
+    "app/manifest.ts",
+    "app/notifications/page.tsx",
+    "app/layout.tsx",
+    "components/Navigation.tsx",
+    "components/NotificationSettings.tsx"
+  ]
+}

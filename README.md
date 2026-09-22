@@ -49,6 +49,21 @@ pnpm --filter engine dev
 pnpm --filter dashboard dev
 ```
 
+### Push Notifications for One Phone
+
+The dashboard can send standards-based web push notifications to one registered phone without a third-party notification service. Generate the VAPID key pair once, then keep the values stable because changing either key invalidates existing browser subscriptions.
+
+```bash
+pnpm --filter engine generate:vapid
+openssl rand -base64 32
+```
+
+Copy the generated VAPID public key, VAPID private key, and random token into the root `.env` file as `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `NOTIFICATION_API_TOKEN`. Set `VAPID_SUBJECT` to a valid `mailto:` address or HTTPS URL. Both the engine and dashboard must have the same `NOTIFICATION_API_TOKEN`; the dashboard uses it server-side to communicate with the engine, and it is never exposed to the browser.
+
+Start the dashboard and engine, navigate to the **notifications** tab, and select **Enable notifications**. Registering a phone replaces the existing subscription, so only one phone receives alerts. The engine stores this subscription at `apps/engine/data/push-subscription.json`; preserve this file with the engine's persistent application data when deploying to AWS.
+
+Phone notifications require HTTPS. On iPhone, open the HTTPS dashboard in Safari, choose **Share → Add to Home Screen**, launch the installed app, then enable notifications. Localhost can be used for browser development, but a physical phone must use an HTTPS hostname, such as the eventual AWS deployment.
+
 ### Deployment with Docker (WIP)
 
 The application includes a `docker-compose.yml` configuration for containerized environments. To build and run the services in production mode:

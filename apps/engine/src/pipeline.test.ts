@@ -99,6 +99,14 @@ async function run(): Promise<void> {
     },
     broadcastPortfolio() {},
   };
+  const notifications = {
+    async notifyOrderEvent() {
+      return true;
+    },
+    async notifyRiskEvent() {
+      return true;
+    },
+  };
 
   MASTER_WATCHLIST.set("AAPL", {
     symbol: "AAPL",
@@ -114,6 +122,7 @@ async function run(): Promise<void> {
       undefined,
       new Map([["AAPL", strategy]]),
       { isKilled: false },
+      notifications,
     );
     pipeline.initialize();
 

@@ -5,6 +5,7 @@ export default function Nav() {
         home: '/',
         logs: '/logs',
         earnings: '/earnings',
+        notifications: '/notifications',
     }
     return (
       <nav className="w-full bg-[#000044]">

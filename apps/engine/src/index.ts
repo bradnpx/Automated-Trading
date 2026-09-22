@@ -17,6 +17,7 @@ import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
 import { fetchTradeHistory } from "./middleware/logger.js";
 import { StockBlacklist } from "./functions/getStockBlacklist.js";
+import { createPushNotificationServiceFromEnvironment } from "./services/pushNotifications.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,7 @@ async function main() {
   const scanner = new Scanner();
   const strategies = new Map<string, any>();
   const engineState = { isKilled: false };
+  const notifications = createPushNotificationServiceFromEnvironment();
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
@@ -61,7 +63,13 @@ async function main() {
   await warmupStrategies(alpaca, strategies);
 
   // 4. START INDEPENDENT SUBSYSTEMS
-  startApiService({ posManager, executor, broadcaster, engineState });
+  startApiService({
+    posManager,
+    executor,
+    broadcaster,
+    engineState,
+    notifications,
+  });
   startBackgroundTasks(alpaca, posManager, broadcaster, executor);
 
   const pipeline = new StreamPipeline(
@@ -72,6 +80,7 @@ async function main() {
     scanner,
     strategies,
     engineState,
+    notifications,
   );
   pipeline.initialize();
 

@@ -5,12 +5,17 @@ import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
+import {
+  isPushSubscription,
+  PushNotificationService,
+} from "./services/pushNotifications.js";
 
 interface ApiConfig {
   posManager: PositionManager;
   executor: Executor;
   broadcaster: Broadcaster;
   engineState: { isKilled: boolean };
+  notifications: PushNotificationService;
 }
 
 export function startApiService({
@@ -18,10 +23,69 @@ export function startApiService({
   executor,
   broadcaster,
   engineState,
+  notifications,
 }: ApiConfig) {
   const app = express();
   app.use(cors());
   app.use(express.json());
+
+  const notificationApiToken = process.env.NOTIFICATION_API_TOKEN;
+
+  function requireNotificationAuthorization(
+    req: express.Request,
+    res: express.Response,
+  ): boolean {
+    if (
+      !notificationApiToken ||
+      req.header("X-Notification-Api-Token") !== notificationApiToken
+    ) {
+      res.status(401).json({ error: "Notification authorization is required." });
+      return false;
+    }
+    return true;
+  }
+
+  app.get("/notifications/status", async (req, res) => {
+    if (!requireNotificationAuthorization(req, res)) return;
+    res.json(await notifications.getStatus());
+  });
+
+  app.get("/notifications/vapid-public-key", (req, res) => {
+    if (!requireNotificationAuthorization(req, res)) return;
+    const publicKey = notifications.getPublicKey();
+    if (!publicKey) {
+      res.status(503).json({ error: "Push notifications are not configured." });
+      return;
+    }
+    res.json({ publicKey });
+  });
+
+  app.put("/notifications/subscription", async (req, res) => {
+    if (!requireNotificationAuthorization(req, res)) return;
+    if (!isPushSubscription(req.body)) {
+      res.status(400).json({ error: "A valid push subscription is required." });
+      return;
+    }
+
+    await notifications.replaceSubscription(req.body);
+    res.status(204).end();
+  });
+
+  app.delete("/notifications/subscription", async (req, res) => {
+    if (!requireNotificationAuthorization(req, res)) return;
+    await notifications.removeSubscription();
+    res.status(204).end();
+  });
+
+  app.post("/notifications/test", async (req, res) => {
+    if (!requireNotificationAuthorization(req, res)) return;
+    const sent = await notifications.sendTestNotification();
+    if (!sent) {
+      res.status(409).json({ error: "No configured phone could receive a test." });
+      return;
+    }
+    res.status(202).json({ message: "Test notification sent." });
+  });
 
   // GET: Fetch Trade History
   app.get("/history", async (req, res) => {

@@ -5,7 +5,7 @@ import {
   TRADING_CONFIG,
   syncTrackingCaches,
 } from "./config/config.js";
-import { logTrade } from "./middleware/logger.js";
+import { getTradeLogStrategy, logTrade } from "./middleware/logger.js";
 import type { StrategyEvaluationOptions } from "./strategies/IStrategy.js";
 
 type MarketTrade = {
@@ -25,6 +25,22 @@ type MarketTrade = {
 type LiveBar = Bar & {
   bucketTimestamp: string;
 };
+
+export interface NotificationDispatcher {
+  notifyOrderEvent(event: {
+    event: "canceled" | "expired" | "fill" | "partial_fill" | "rejected";
+    fillPrice?: number;
+    quantity?: number;
+    side?: string;
+    strategy: string;
+    symbol: string;
+  }): Promise<boolean>;
+  notifyRiskEvent(event: {
+    reason: string;
+    strategy: string;
+    symbol: string;
+  }): Promise<boolean>;
+}
 
 const SECOND_LEVEL_EVALUATION_INTERVAL_MS = 1_000;
 
@@ -48,6 +64,7 @@ export class StreamPipeline {
     private scanner: any,
     private strategies: Map<string, any>,
     private engineState: { isKilled: boolean },
+    private notifications: NotificationDispatcher,
   ) {}
 
   public initialize(): void {
@@ -146,6 +163,12 @@ export class StreamPipeline {
         await this.posManager.syncPositions();
         this.subscribeToSymbols(this.posManager.getPositionSymbols());
         this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
+        await this.notifications.notifyOrderEvent({
+          event,
+          side: order.side,
+          strategy: await getTradeLogStrategy(order.symbol),
+          symbol: order.symbol,
+        });
         return;
       }
 
@@ -205,6 +228,14 @@ export class StreamPipeline {
       await this.posManager.syncPositions();
       this.subscribeToSymbols(this.posManager.getPositionSymbols());
       this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
+      await this.notifications.notifyOrderEvent({
+        event,
+        fillPrice,
+        quantity,
+        side: order.side,
+        strategy: await getTradeLogStrategy(order.symbol),
+        symbol: order.symbol,
+      });
     } catch (error) {
       console.error("❌ Error handling trade order update in pipeline:", error);
     }
@@ -259,6 +290,11 @@ export class StreamPipeline {
 
     try {
       await this.executor.closePosition(symbol);
+      await this.notifications.notifyRiskEvent({
+        reason,
+        strategy: await getTradeLogStrategy(symbol),
+        symbol,
+      });
       this.broadcaster.broadcastSignal({
         symbol,
         action: "SELL",
