@@ -7,6 +7,7 @@ export interface MasterWatchlistItem {
   strategy: string;
   takeProfitPct?: number;
   stopLossPct?: number;
+  trailingStopLoss?: boolean;
   totalRisk?: number;
   expiration?: number;
 }
@@ -16,6 +17,8 @@ dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 const defaultRisk = process.env.RISK_PER_TRADE || 0.05;
 export const POLYGON_API = process.env.POLYGON_API_KEY;
+export const TRAILING_STOP_LOSS_ENABLED =
+  parseOptionalBoolean(process.env.TRAILING_STOP_LOSS) ?? false;
 export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
 export const ALL_TRACKED_SYMBOLS: string[] = [];
 export const GLOBAL_WATCHLIST: string[] = [];
@@ -73,8 +76,11 @@ function loadManualStrategiesFromEnv(): void {
       ? parseFloat(process.env[`${prefix}_TAKE_PROFIT`]!)
       : 2.2;
     const stopLoss = process.env[`${prefix}_STOP_LOSS`]
-    ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
-    : 2.0;
+      ? parseFloat(process.env[`${prefix}_STOP_LOSS`]!)
+      : 2.0;
+    const trailingStopLoss =
+      parseOptionalBoolean(process.env[`${prefix}_TRAILING_STOP_LOSS`]) ??
+      TRAILING_STOP_LOSS_ENABLED;
     const expiration = Number(process.env[`${prefix}_EXPIRATION`]);
 
     for (const symbol of tickers) {
@@ -83,6 +89,7 @@ function loadManualStrategiesFromEnv(): void {
         strategy: strategyName,
         takeProfitPct: takeProfit,
         stopLossPct: stopLoss,
+        trailingStopLoss,
         totalRisk: totalRisk,
         expiration: expiration,
       });
@@ -102,6 +109,26 @@ console.log(
 
 export const TRADING_CONFIG = {
   RISK_PER_TRADE: Number(defaultRisk), // 5% of total equity
+  TRAILING_STOP_LOSS_ENABLED,
   PORT_WS_BROADCASTER: 4000,
   PORT_KILL_SWITCH_API: 4001,
 };
+
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined || value.trim() === "") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  console.warn(
+    `⚠️ [CONFIG] Ignoring invalid trailing stop-loss value: ${value}`,
+  );
+  return undefined;
+}

@@ -76,6 +76,10 @@ export interface TradeRecord {
   side: "buy" | "sell";
   qty: string;
   price: string;
+  strategy?: string;
+  take_profit_pct?: number;
+  stop_loss_pct?: number;
+  trailing_stop_loss?: boolean;
   pnl?: number;
   pnl_pct?: number;
   timestamp: string;

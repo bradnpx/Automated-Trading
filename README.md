@@ -29,6 +29,14 @@ STRATEGY_001_NAME="bullFlagMomentum"
 STRATEGY_001_WATCHLIST="AAPL,MSFT,TSLA"
 ```
 
+#### Optional trailing stop-loss
+
+Set `TRAILING_STOP_LOSS=true` to change the take-profit exit for every strategy. When a position reaches its configured take-profit threshold, the engine sells half of the position. After that partial fill is confirmed, it submits a broker-managed trailing sell for the remaining shares with a dollar trail calibrated so its initial stop is the original entry price. The broker raises that stop as the price makes new highs. Leave the setting unset or set it to `false` to preserve the default behavior: take-profit closes the full position.
+
+As with any trailing stop, the broker triggers a market order after the threshold is crossed; a gap or fast market can therefore fill below the stop. Alpaca trailing stops trigger during regular market hours only.
+
+Use `STRATEGY_<n>_TRAILING_STOP_LOSS=true` or `false` to override the global setting for one strategy. Each entry record writes the selected strategy and exit settings to the local trade log, allowing an existing open symbol to retain its strategy-specific thresholds after the engine restarts.
+
 ### Local Development
 
 To spin up the entire application suite in development mode, execute the following command from the root directory:

@@ -143,6 +143,11 @@ export class StreamPipeline {
       if (event === "canceled" || event === "rejected" || event === "expired") {
         this.posManager.clearPendingExit(order.symbol);
         this.posManager.clearPendingBuy(order.symbol);
+        if (order.type === "trailing_stop") {
+          this.posManager.deactivateTrailingStop(order.symbol);
+        } else {
+          this.posManager.cancelPendingTrailingStop(order.symbol);
+        }
         await this.posManager.syncPositions();
         this.subscribeToSymbols(this.posManager.getPositionSymbols());
         this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
@@ -162,6 +167,9 @@ export class StreamPipeline {
       console.log(`✅ EXECUTION: ${order.symbol} filled @ $${fillPrice}`);
       if (order.side === "sell") {
         this.posManager.clearPendingExit(order.symbol);
+        if (order.type === "trailing_stop") {
+          this.posManager.deactivateTrailingStop(order.symbol);
+        }
       }
       if (order.side === "buy" && event === "fill") {
         this.posManager.clearPendingBuy(order.symbol);
@@ -185,26 +193,47 @@ export class StreamPipeline {
             : pnl < 0
               ? "LOSS"
               : "BREAKEVEN";
+      const profile =
+        order.side === "buy"
+          ? this.posManager.captureEntryProfile(order.symbol)
+          : this.posManager.getExitProfile(order.symbol);
 
       await logTrade({
         symbol: order.symbol,
-        side: order.side.toUpperCase(),
+        side: order.side,
         qty: quantity.toString(),
         price: fillPrice.toString(),
+        strategy: profile.strategy,
+        take_profit_pct: profile.takeProfitPct,
+        stop_loss_pct: profile.stopLossPct,
+        trailing_stop_loss: profile.trailingStopLoss,
         pnl,
         pnl_pct: pnlPct,
         timestamp: new Date().toISOString(),
         reason:
-          order.side === "sell"
-            ? "Exit"
-            : (MASTER_WATCHLIST.get(order.symbol)?.strategy ??
-              "UnknownStrategy"),
+          order.side === "buy"
+            ? profile.strategy
+            : order.type === "trailing_stop"
+              ? "TRAILING_STOP_LOSS"
+              : this.posManager.getPendingTrailingStopEntryPrice(order.symbol)
+                ? "TAKE_PROFIT_HALF"
+                : "Exit",
         win_status: winStatus,
       });
 
       await this.posManager.syncPositions();
       this.subscribeToSymbols(this.posManager.getPositionSymbols());
       this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
+
+      if (
+        event === "fill" &&
+        order.side === "sell" &&
+        order.type !== "trailing_stop" &&
+        this.posManager.getPendingTrailingStopEntryPrice(order.symbol) !==
+          undefined
+      ) {
+        await this.installTrailingStopAfterHalfExit(order.symbol);
+      }
     } catch (error) {
       console.error("❌ Error handling trade order update in pipeline:", error);
     }
@@ -248,32 +277,79 @@ export class StreamPipeline {
   ): Promise<boolean> {
     if (!this.posManager.hasPosition(symbol)) return false;
 
-    const { shouldExit, reason } = this.posManager.checkExitConditions(
-      symbol,
-      currentPrice,
-    );
-    if (!shouldExit) return false;
+    const decision = this.posManager.checkExitConditions(symbol, currentPrice);
+    if (!decision.shouldExit) return false;
 
-    console.log(`🚨 Exit condition met for ${symbol}: ${reason}`);
+    console.log(`🚨 Exit condition met for ${symbol}: ${decision.reason}`);
     this.posManager.markPendingExit(symbol);
 
     try {
-      await this.executor.closePosition(symbol);
+      if (decision.action === "take-profit-half") {
+        const quantity = decision.quantity ?? 0;
+        const entryPrice = decision.entryPrice ?? 0;
+        const halfQuantity = quantity / 2;
+        if (!(halfQuantity > 0) || !(entryPrice > 0)) {
+          throw new Error(`Invalid half-out values for ${symbol}`);
+        }
+
+        this.posManager.beginTrailingStop(symbol, entryPrice);
+        await this.executor.closePosition(symbol, halfQuantity);
+      } else {
+        await this.executor.closePosition(symbol);
+      }
       this.broadcaster.broadcastSignal({
         symbol,
         action: "SELL",
         confidence: 1,
-        reason,
+        reason: decision.reason,
       });
     } catch (error) {
       console.error(
         `❌ [PIPELINE] closePosition failed for ${symbol}. Releasing lock for retry.`,
         error,
       );
+      this.posManager.cancelPendingTrailingStop(symbol);
       this.posManager.clearPendingExit(symbol);
     }
 
     return true;
+  }
+
+  private async installTrailingStopAfterHalfExit(
+    symbol: string,
+  ): Promise<void> {
+    const entryPrice = this.posManager.getPendingTrailingStopEntryPrice(symbol);
+    if (entryPrice === undefined) return;
+
+    try {
+      await this.executor.placeBreakEvenTrailingStop(symbol, entryPrice);
+      this.posManager.activateTrailingStop(symbol);
+      this.posManager.cancelPendingTrailingStop(symbol);
+      this.posManager.clearPendingExit(symbol);
+      this.broadcaster.broadcastSignal({
+        symbol,
+        action: "SELL",
+        confidence: 1,
+        reason: "TRAILING_STOP_ACTIVE: remaining shares protected at entry",
+      });
+    } catch (error) {
+      this.posManager.cancelPendingTrailingStop(symbol);
+      console.error(
+        `❌ [PIPELINE] Trailing stop setup failed for ${symbol}; closing the unprotected remainder.`,
+        error,
+      );
+
+      try {
+        this.posManager.markPendingExit(symbol);
+        await this.executor.closePosition(symbol);
+      } catch (closeError) {
+        console.error(
+          `❌ [PIPELINE] Failed to close unprotected remainder for ${symbol}:`,
+          closeError,
+        );
+        this.posManager.clearPendingExit(symbol);
+      }
+    }
   }
 
   private async handleScannerAndWarmup(bar: Bar): Promise<void> {
