@@ -8,7 +8,7 @@ import { BuyAndHold } from "./BuyAndHold";
 import { DonchianBreakout } from "./DonchianBreakout";
 import { RSIReversion } from "./RSIReversion";
 import { SMACross } from "./SMACross";
-import { vixVWAPReversion } from "./vixVWAPReversion";
+// import { vixVWAPReversion } from "./vixVWAPReversion";
 import { StrategyParameterOverrides } from "./strategyConfig";
 import { BullFlagMomentum } from "./BullFlagMomentum";
 
@@ -23,7 +23,7 @@ export type StrategyIdentifier =
   | "donchianBreakout"
   | "rsiReversion"
   | "smaCross"
-  | "vixVWAPReversion";
+  // | "vixVWAPReversion";
 
 type StrategyCreator = (parameters: StrategyParameterOverrides) => IStrategy;
 
@@ -46,7 +46,7 @@ export class StrategyFactory {
       ),
     smaCross: (parameters) =>
       new SMACross(parameters.smaFastPeriod, parameters.smaSlowPeriod),
-    vixVWAPReversion: () => new vixVWAPReversion(),
+    // vixVWAPReversion: () => new vixVWAPReversion(),
   };
 
   public static create(

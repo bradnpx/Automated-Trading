@@ -105,7 +105,7 @@ export default function PortfolioTable() {
   });
 
   return (
-    <div className="bg-black rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-black sticky top-2 rounded-lg border border-slate-200 shadow-sm overflow-hidden">
       <div className="p-4 border-b border-slate-100 bg-slate-900">
         <h3 className="text-md font-bold text-slate-400">Active Positions</h3>
       </div>

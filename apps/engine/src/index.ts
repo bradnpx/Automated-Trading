@@ -47,6 +47,7 @@ async function main() {
           strategy: "dayTradeMicroScalp",
           stopLossPct: 5,
           takeProfitPct: 5,
+          totalRisk: 0.01,
         });
       }
     }
