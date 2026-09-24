@@ -37,6 +37,10 @@ As with any trailing stop, the broker triggers a market order after the threshol
 
 Use `STRATEGY_<n>_TRAILING_STOP_LOSS=true` or `false` to override the global setting for one strategy. Each entry record writes the selected strategy and exit settings to the local trade log, allowing an existing open symbol to retain its strategy-specific thresholds after the engine restarts.
 
+#### Persistent trade lifecycle ledger
+
+The engine persists one local lifecycle record for every entry in `apps/engine/data/trade-lifecycles.json`. The record contains the entry fill, every exit fill, strategy settings, pending half-out state, and trailing-stop order state. The Logs dashboard reads this local ledger rather than reconstructing positions from broker order history, so a restart retains the complete entry-to-exit relationship without a historical broker API lookup. Set `TRADE_LIFECYCLE_PATH` to store the ledger elsewhere; back up the selected local path before changing machines.
+
 ### Local Development
 
 To spin up the entire application suite in development mode, execute the following command from the root directory:

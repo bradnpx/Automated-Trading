@@ -33,6 +33,7 @@ dist
 # Trade Logs
 apps/engine/logs/
 apps/engine/data/portfolio.json
+apps/engine/data/trade-lifecycles.json
 *.csv
 
 # Backtest and Historical Data

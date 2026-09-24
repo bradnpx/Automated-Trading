@@ -3,14 +3,15 @@ import cors from "cors";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
+import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
 
 interface ApiConfig {
   posManager: PositionManager;
   executor: Executor;
   broadcaster: Broadcaster;
   engineState: { isKilled: boolean };
+  lifecycleStore: TradeLifecycleStore;
 }
 
 export function startApiService({
@@ -18,15 +19,16 @@ export function startApiService({
   executor,
   broadcaster,
   engineState,
+  lifecycleStore,
 }: ApiConfig) {
   const app = express();
   app.use(cors());
   app.use(express.json());
 
-  // GET: Fetch Trade History
+  // GET: Fetch locally persisted trade lifecycles; no broker history lookup.
   app.get("/history", async (req, res) => {
     try {
-      const history = await fetchTradeHistory();
+      const history = await lifecycleStore.getLifecycles();
       res.json(history);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch history" });
@@ -80,7 +82,14 @@ export function startApiService({
     posManager.markPendingExit(symbol);
 
     try {
-      await executor.closePosition(symbol);
+      const order = await executor.closePosition(symbol);
+      if (order?.id) {
+        await lifecycleStore.recordExitIntent(symbol, {
+          orderId: order.id,
+          reason: "MANUAL_CLOSE",
+          submittedAt: new Date().toISOString(),
+        });
+      }
 
       broadcaster.broadcastSignal({
         symbol,

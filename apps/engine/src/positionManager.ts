@@ -11,6 +11,7 @@ import {
   Portfolio,
   PortfolioPosition,
 } from "./models/portfolio.js";
+import { TradeLifecycle } from "@my-platform/types";
 
 export type PositionExitAction = "none" | "close-position" | "take-profit-half";
 
@@ -210,6 +211,36 @@ export class PositionManager {
 
   public cancelPendingTrailingStop(symbol: string): void {
     this.pendingTrailingStopEntries.delete(symbol);
+  }
+
+  /** Restores locally persisted half-out/trailing state after an engine restart. */
+  public restoreLifecycleState(lifecycles: TradeLifecycle[]): void {
+    for (const lifecycle of lifecycles) {
+      if (lifecycle.status === "closed") continue;
+
+      this.entryProfiles.set(lifecycle.symbol, {
+        strategy: lifecycle.profile.strategy,
+        stopLossPct: lifecycle.profile.stopLossPct,
+        takeProfitPct: lifecycle.profile.takeProfitPct,
+        trailingStopLoss: lifecycle.profile.trailingStopLoss,
+      });
+
+      if (lifecycle.trailingStopOrderId) {
+        this.trailingStopSymbols.add(lifecycle.symbol);
+        continue;
+      }
+
+      if (lifecycle.status === "partially_closed") {
+        this.pendingTrailingStopEntries.set(
+          lifecycle.symbol,
+          lifecycle.averageEntryPrice,
+        );
+      }
+    }
+  }
+
+  public getPendingTrailingStopSymbols(): string[] {
+    return Array.from(this.pendingTrailingStopEntries.keys());
   }
 
   public captureEntryProfile(symbol: string): PositionExitProfile {
