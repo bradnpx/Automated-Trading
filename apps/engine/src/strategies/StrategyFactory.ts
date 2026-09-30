@@ -11,12 +11,14 @@ import { SMACross } from "./SMACross";
 // import { vixVWAPReversion } from "./vixVWAPReversion";
 import { StrategyParameterOverrides } from "./strategyConfig";
 import { BullFlagMomentum } from "./BullFlagMomentum";
+import { PDLSweepVWAPReclaimBEAR } from "./pdl-vwap-bear";
 
 export type StrategyIdentifier =
   | "basicStrategy"
   | "bullFlagMomentum"
   | "dayTradeMicroScalp"
   | "pdlSweepVWAPReclaim"
+  | "pdlSweepVWAPReclaimBEAR"
   | "biotechMomentum"
   | "fifteenMinMorningBounce"
   | "buyAndHold"
@@ -32,6 +34,7 @@ export class StrategyFactory {
     basicStrategy: () => new BasicStrategy(),
     bullFlagMomentum: (parameters) => new BullFlagMomentum(parameters),
     pdlSweepVWAPReclaim: () => new PDLSweepVWAPReclaim(),
+    pdlSweepVWAPReclaimBEAR: () => new PDLSweepVWAPReclaimBEAR(),
     dayTradeMicroScalp: () => new DayTradeMicroScalp(),
     biotechMomentum: () => new BiotechMomentumStrategy(),
     fifteenMinMorningBounce: () => new FifteenMinMorningBounce(),

@@ -8,7 +8,7 @@ export class BiotechMomentumStrategy implements IStrategy {
 
   // Declarative strategy configuration manifest
   private criteria: StrategyCriterion[] = [
-    "isRsiBelow70",
+    "isRsiBelowExtreme",
     "isAboveRollingVWAP",
     "isRollingVolumeSurge",
   ];

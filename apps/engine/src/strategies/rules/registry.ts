@@ -72,7 +72,7 @@ export const StatelessRules: Partial<
     return data ? data.percentageChange >= 5 : false;
   },
   isRollingVolumeSurge: ({ metrics }) => metrics.rvol >= 4.0,
-  isRsiBelow70: ({ metrics }) => metrics.rsi < 70,
+  isRsiBelowExtreme: ({ metrics }) => metrics.rsi < 60,
   isStrongBullCandle: ({ bar }) => {
     const body = Math.abs(bar.close - bar.open);
     const range = bar.high - bar.low;

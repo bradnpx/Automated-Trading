@@ -38,7 +38,7 @@ export type StrategyCriterion =
   | "isPremarket"
   | "isPremarketGapper"
   | "isRollingVolumeSurge"
-  | "isRsiBelow70"
+  | "isRsiBelowExtreme"
   | "isStrongBullCandle"
   | "isSurgingVolume"
   | "isWithinOpeningWindow"

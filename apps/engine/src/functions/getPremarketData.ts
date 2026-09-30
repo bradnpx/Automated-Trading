@@ -128,7 +128,7 @@ async function fetchPremarketData(
     end: endIso,
     timeframe: "1Min",
     adjustment: "all",
-    feed: "iex",
+    feed: "boats",
   });
 
   const bars: AlpacaBar[] = [];
@@ -138,14 +138,14 @@ async function fetchPremarketData(
 
   if (bars.length === 0) {
     console.log(
-      `⚠️ No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern via Alpaca IEX.`,
+      `⚠️ No pre-market trading activity detected for ${symbol} since 4:00 AM Eastern via Alpaca boats.`,
     );
     return null;
   }
 
-  const premarketHigh = Math.max(...bars.map((bar) => bar.HighPrice ?? 0));
   const firstBar = bars[0];
-
+  const premarketHigh = Math.max(...bars.map((bar) => bar.HighPrice ?? 0)) ?? firstBar;
+  console.log("premarketHigh", premarketHigh);
   return {
     price: firstBar.OpenPrice ?? null,
     open: firstBar.OpenPrice ?? null,

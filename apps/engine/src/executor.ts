@@ -20,7 +20,7 @@ export class Executor {
         symbol,
         qty,
         side: "buy",
-        type: "market",
+        type: isExtendedHours ? "limit" : "market",
         time_in_force: "day",
         extended_hours: isExtendedHours,
       });
