@@ -1,20 +1,33 @@
+export type TradeExit = {
+  orderId: string;
+  orderType: string;
+  reason: string;
+  quantity: number;
+  price: number;
+  filledAt: string;
+};
+
 export type Trade = {
+  id: string;
   symbol: string;
   strategy: string;
+  status: "open" | "partially_closed" | "closed";
   priceOpen: number;
-  priceClose: number;
+  priceClose?: number;
   pnl: number;
   pnlPct: number;
   qty: number;
+  exitedQty: number;
+  remainingQty: number;
   isWinner: boolean;
   openedOn: string;
-  closedOn: string;
-  tradeLogs: any[];
+  closedOn?: string;
+  exits: TradeExit[];
 };
 
 export type History = {
   groupedTrades: Trade[];
-  rawLogs: any[];
+  rawLogs: LifecycleRecord[];
 };
 
 export type TradeStats = {
@@ -27,141 +40,156 @@ export type TradeStats = {
   avgLoss: number;
 };
 
-function getStrategy(symbol, watchlist) {
-  // console.log(watchlist[symbol]?.strategy)
-  return watchlist[symbol]?.strategy || "dayTradeMicroScalp";
+type LifecycleFill = {
+  orderId: string;
+  orderType: string;
+  reason?: string;
+  price: number;
+  quantity: number;
+  filledAt: string;
+};
+
+type LifecycleRecord = {
+  id: string;
+  symbol: string;
+  status: "open" | "partially_closed" | "closed";
+  openedAt: string;
+  closedAt?: string;
+  profile: { strategy: string };
+  entryQuantity: number;
+  exitedQuantity: number;
+  remainingQuantity: number;
+  averageEntryPrice: number;
+  averageExitPrice?: number;
+  realizedPnl: number;
+  realizedPnlPct: number;
+  exitFills: LifecycleFill[];
+};
+
+function isLifecycleRecord(value: unknown): value is LifecycleRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Partial<LifecycleRecord>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.symbol === "string" &&
+    (record.status === "open" ||
+      record.status === "partially_closed" ||
+      record.status === "closed") &&
+    typeof record.openedAt === "string" &&
+    typeof record.profile?.strategy === "string" &&
+    typeof record.entryQuantity === "number" &&
+    typeof record.exitedQuantity === "number" &&
+    typeof record.remainingQuantity === "number" &&
+    typeof record.averageEntryPrice === "number" &&
+    typeof record.realizedPnl === "number" &&
+    typeof record.realizedPnlPct === "number" &&
+    Array.isArray(record.exitFills)
+  );
 }
 
-function logTrades(history, watchlist): History {
-  const rawLogs = Array.isArray(history) ? history : [];
-  const groupedTrades = groupTrades(rawLogs, watchlist);
+function toDisplayTrade(lifecycle: LifecycleRecord): Trade {
   return {
-    groupedTrades,
+    id: lifecycle.id,
+    symbol: lifecycle.symbol,
+    strategy: lifecycle.profile.strategy,
+    status: lifecycle.status,
+    priceOpen: lifecycle.averageEntryPrice,
+    ...(lifecycle.averageExitPrice !== undefined
+      ? { priceClose: lifecycle.averageExitPrice }
+      : {}),
+    pnl: lifecycle.realizedPnl,
+    pnlPct: lifecycle.realizedPnlPct,
+    qty: lifecycle.entryQuantity,
+    exitedQty: lifecycle.exitedQuantity,
+    remainingQty: lifecycle.remainingQuantity,
+    isWinner: lifecycle.realizedPnl > 0,
+    openedOn: lifecycle.openedAt,
+    ...(lifecycle.closedAt ? { closedOn: lifecycle.closedAt } : {}),
+    exits: lifecycle.exitFills.map((fill) => ({
+      orderId: fill.orderId,
+      orderType: fill.orderType,
+      reason: fill.reason ?? "EXIT",
+      quantity: fill.quantity,
+      price: fill.price,
+      filledAt: fill.filledAt,
+    })),
+  };
+}
+
+function formatHistory(history: unknown): History {
+  const rawLogs = Array.isArray(history)
+    ? history.filter(isLifecycleRecord)
+    : [];
+
+  return {
     rawLogs,
+    groupedTrades: rawLogs
+      .map(toDisplayTrade)
+      .sort(
+        (left, right) => Date.parse(right.openedOn) - Date.parse(left.openedOn),
+      ),
   };
 }
 
-export function getStats(rawLogs, groupedTrades, strategy, limit) {
-  let winCount = 0;
-  let avgLoss = 0;
-  let avgWin = 0;
+export function getStats(
+  groupedTrades: Trade[],
+  strategy: string,
+  limit: number,
+): TradeStats {
+  const completedTrades = groupedTrades.filter(
+    (trade) =>
+      trade.status === "closed" &&
+      (strategy === "none" || trade.strategy === strategy),
+  );
+  const limitedTrades =
+    limit > 0 ? completedTrades.slice(0, limit) : completedTrades;
+  const tradesPerDay = new Map<string, number>();
   let totalPnl = 0;
-  let count = 0;
-  const tradesPerDay = new Map();
+  let wins = 0;
+  let totalWin = 0;
+  let losses = 0;
+  let totalLoss = 0;
 
-  for (const g of groupedTrades) {
-    if (limit > 0 && count > limit) {
-      console.log(count, limit)
-      break
-    }
-    if (strategy !== 'none' && g.strategy !== strategy) {
-      continue
-    }
-    
-    try {
-      winCount += g.isWinner ? 1 : 0;
-      totalPnl += g.pnl * g.qty;
+  for (const trade of limitedTrades) {
+    totalPnl += trade.pnl;
+    const day = (trade.closedOn ?? trade.openedOn).slice(0, 10);
+    tradesPerDay.set(day, (tradesPerDay.get(day) ?? 0) + 1);
 
-      const date = g.openedOn.substring(0, 10);
-      if (!tradesPerDay.has(date)) {
-        tradesPerDay.set(date, 0);
-      }
-      tradesPerDay.set(date, tradesPerDay.get(date) + 1);
-      count++
-    } catch (error) {
-      console.error(error);
+    if (trade.pnl > 0) {
+      wins += 1;
+      totalWin += trade.pnl;
+    } else if (trade.pnl < 0) {
+      losses += 1;
+      totalLoss += trade.pnl;
     }
   }
 
-  const todayEntry = Array.from(tradesPerDay)[0];
-  const todayValue = todayEntry ? todayEntry[1] : undefined;
-  const tradeCount = count;
-  const avgTrades = tradeCount / Array.from(tradesPerDay).length;
-  
-  // console.log(tradeCount, totalPnl, totalPnl / tradeCount)
+  const today = new Date().toISOString().slice(0, 10);
+  const count = limitedTrades.length;
   return {
-    tradesPerDay: Math.floor(avgTrades),
-    tradesToday: todayValue || '?',
-    totalTrades: tradeCount,
-    dailyPnL: totalPnl / tradeCount,
-    winRate: winCount,
-    avgWin: 0,
-    avgLoss: 0,
+    tradesPerDay:
+      tradesPerDay.size === 0 ? 0 : Math.floor(count / tradesPerDay.size),
+    tradesToday: tradesPerDay.get(today) ?? 0,
+    totalTrades: count,
+    dailyPnL: count === 0 ? 0 : totalPnl / count,
+    winRate: count === 0 ? 0 : wins / count,
+    avgWin: wins === 0 ? 0 : totalWin / wins,
+    avgLoss: losses === 0 ? 0 : totalLoss / losses,
   };
 }
 
-function groupTrades(history, watchlist) {
-  const set = new Map();
-  for (const h of history) {
-    const tradeKey = `${h.symbol}:${h.qty}`;
-    if (!set.has(tradeKey)) {
-      set.set(tradeKey, []);
-    }
-    set.get(tradeKey)!.push(h);
-  }
-
-  return tradeGroupStats(Array.from(set.values()), watchlist);
-}
-
-function tradeGroupStats(tradeGroups, watchlist) {
-  const analyzedGroups = [];
-  for (const t of tradeGroups) {
-    if (!t.length || t.length !== 2) {
-      continue;
-    }
-    const pnl = Number(t[0].filled_avg_price) - Number(t[1].filled_avg_price);
-    const pnlPct = pnl / Number(t[1].filled_avg_price);
-    const isWinner = pnl > 0;
-    const stats: Trade = {
-      symbol: t[0].symbol,
-      strategy: getStrategy(t[0].symbol, watchlist),
-      priceOpen: t[1].filled_avg_price,
-      priceClose: t[0].filled_avg_price,
-      pnl: pnl,
-      pnlPct: pnlPct,
-      qty: t[0].qty,
-      isWinner: isWinner,
-      openedOn: t[1].filled_at,
-      closedOn: t[0].filled_at,
-      tradeLogs: t,
-    };
-
-    // console.log(stats)
-    analyzedGroups.push(stats);
-  }
-  return analyzedGroups;
-}
-
-export async function fetchTradeHistory() {
+export async function fetchTradeHistory(): Promise<History> {
   try {
     const response = await fetch("http://localhost:4001/history");
     if (response.ok) {
-      const history = await response.json();
-      const watchlist = await fetchWatchlist();
-      return logTrades(history, watchlist);
+      return formatHistory(await response.json());
     }
-  } catch (err) {
-    console.log(`History fetch FAILED: ${err}`);
+  } catch (error) {
+    console.error("History fetch failed:", error);
   }
-}
 
-export async function fetchWatchlist() {
-  // console.log("getting watchlist");
-  try {
-    const response = await fetch("http://localhost:4001/watchlist", {
-      signal: AbortSignal.timeout(10000)
-    });
-    if (response.ok) {
-      // console.log('responded', response)
-      const watchlist = await response.json();
-      // console.log(JSON.parse(watchlist));
-      return JSON.parse(watchlist);
-    }
-  } catch (err) {
-    if (err.name === "TimeoutError") {
-      console.log(`Watchlist fetch timed out`);
-    } else {
-      console.log(`Watchlist fetch FAILED: ${err}`);
-    }
-  }
+  return { groupedTrades: [], rawLogs: [] };
 }

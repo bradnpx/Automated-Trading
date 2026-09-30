@@ -13,6 +13,8 @@ export type ExitReason =
   | "strategy-sell"
   | "stop-loss"
   | "take-profit"
+  | "take-profit-half"
+  | "trailing-stop"
   | "end-of-data";
 
 export interface BacktestConfig {
@@ -24,6 +26,7 @@ export interface BacktestConfig {
   maxPositionPct: number;
   stopLossPct: number | null;
   takeProfitPct: number | null;
+  trailingStopLoss?: boolean;
   slippageBps: number;
   commissionPerOrder: number;
   intrabarFillPriority: IntrabarFillPriority;
@@ -31,8 +34,9 @@ export interface BacktestConfig {
 }
 
 export interface ResolvedBacktestConfig
-  extends Omit<BacktestConfig, "strategyParameters"> {
+  extends Omit<BacktestConfig, "strategyParameters" | "trailingStopLoss"> {
   strategyParameters: StrategyParameterOverrides;
+  trailingStopLoss: boolean;
 }
 
 export interface BacktestOrder {
@@ -55,6 +59,9 @@ export interface OpenPosition {
   entryCommission: number;
   stopPrice: number | null;
   targetPrice: number | null;
+  trailingStopPrice: number | null;
+  trailingDistance: number | null;
+  highWaterMark: number | null;
   strategyId: StrategyIdentifier;
   entrySignal: TradeSignal;
 }

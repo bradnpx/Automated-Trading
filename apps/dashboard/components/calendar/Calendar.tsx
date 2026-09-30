@@ -40,14 +40,16 @@ interface Props {
   trades: Trade[];
 }
 
-export default function Calendar({ trades }: Trade[]) {
+export default function Calendar({ trades }: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
-
 
   // Compile the earnings by day
   const earningsMap = new Map<string, DayEarning>();
   for (const t of trades) {
     if (!t) {
+      continue;
+    }
+    if (t.status !== "closed" || !t.closedOn) {
       continue;
     }
     const date = t.closedOn.split("T")[0];
@@ -56,7 +58,7 @@ export default function Calendar({ trades }: Trade[]) {
       transactions: 0,
     };
     const addition: DayEarning = {
-      amount: current.amount + (t.pnl * t.qty),
+      amount: current.amount + t.pnl,
       transactions: current.transactions + 1,
     };
 
@@ -65,16 +67,15 @@ export default function Calendar({ trades }: Trade[]) {
     }
     earningsMap.set(date, addition);
   }
-  
+
   const earnings: EarningsData = {
     currency: "USD",
     month: "2026-08",
     earnings: Object.fromEntries(earningsMap),
   };
-  
-  console.log(earnings)
-  console.log(currentDate)
 
+  console.log(earnings);
+  console.log(currentDate);
 
   // Generate perfect grid alignment days using date-fns
   const monthStart = startOfMonth(currentDate);
@@ -144,7 +145,7 @@ export default function Calendar({ trades }: Trade[]) {
               <div className="mt-2 text-right">
                 {isCurrentMonth && dayData ? (
                   <div
-                    className={`text-sm font-bold ${dayData.amount > 0 ? 'text-emerald-400' : 'text-red-600' } tracking-tight`}
+                    className={`text-sm font-bold ${dayData.amount > 0 ? "text-emerald-400" : "text-red-600"} tracking-tight`}
                   >
                     ${dayData.amount.toFixed(2)}
                   </div>

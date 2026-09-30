@@ -63,9 +63,9 @@ export class Executor {
   }
 
   /**
-   * Closes an existing position entirely
+   * Closes all or part of an existing position.
    */
-  async closePosition(symbol: string) {
+  async closePosition(symbol: string, requestedQuantity?: number) {
     try {
       //cancel outstanding orders pertaining to the symbol to 'clear out the lane'
       const orders = await this.alpaca.getOrders({
@@ -108,7 +108,16 @@ export class Executor {
         throw err;
       }
 
-      const qty = position.qty;
+      const positionQuantity = Number(position.qty);
+      const quantity = requestedQuantity ?? positionQuantity;
+      if (
+        !Number.isFinite(quantity) ||
+        quantity <= 0 ||
+        quantity > positionQuantity
+      ) {
+        throw new Error(`Invalid sell quantity for ${symbol}: ${quantity}`);
+      }
+
       const latestBars = await this.alpaca.getLatestBars([symbol]);
       const bar = latestBars.get(symbol);
       if (!bar) {
@@ -118,7 +127,7 @@ export class Executor {
       const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2));
       const response = await this.alpaca.createOrder({
         symbol,
-        qty,
+        qty: quantity,
         side: "sell",
         type: "limit",
         limit_price: marketableLimitPrice,
@@ -135,6 +144,59 @@ export class Executor {
         return;
       }
       console.error(`❌ [EXEC] Close Position Failed for ${symbol}:`, err);
+      throw err;
+    }
+  }
+
+  /**
+   * Protects a remaining long position with a broker-managed trailing stop. The
+   * dollar trail is calibrated so the initial broker stop is the entry price.
+   */
+  async placeBreakEvenTrailingStop(symbol: string, entryPrice: number) {
+    if (!(entryPrice > 0)) {
+      throw new Error(
+        `Cannot set a break-even trailing stop for ${symbol} without a valid entry price.`,
+      );
+    }
+
+    try {
+      const position = await this.alpaca.getPosition(symbol);
+      const quantity = Number(position.qty);
+      if (!(quantity > 0)) {
+        throw new Error(`No active position available for ${symbol}`);
+      }
+
+      const latestBars = await this.alpaca.getLatestBars([symbol]);
+      const bar = latestBars.get(symbol);
+      const currentPrice = Number(bar?.ClosePrice);
+      if (!(currentPrice > entryPrice)) {
+        throw new Error(
+          `Cannot establish a break-even trailing stop for ${symbol} at $${currentPrice}.`,
+        );
+      }
+
+      const trailPrice = roundToPriceIncrement(currentPrice - entryPrice);
+      if (!(trailPrice > 0)) {
+        throw new Error(`Invalid trailing price for ${symbol}: ${trailPrice}`);
+      }
+
+      const order = await this.alpaca.createOrder({
+        symbol,
+        qty: quantity,
+        side: "sell",
+        type: "trailing_stop",
+        trail_price: trailPrice,
+        time_in_force: "gtc",
+      });
+      console.log(
+        `🛡️ [EXEC] TRAILING STOP PLACED: ${symbol} | Qty: ${quantity} | Initial stop: $${entryPrice.toFixed(2)} | ID: ${order.id}`,
+      );
+      return order;
+    } catch (err) {
+      console.error(
+        `❌ [EXEC] Trailing Stop Placement Failed for ${symbol}:`,
+        err,
+      );
       throw err;
     }
   }
@@ -160,4 +222,8 @@ export class Executor {
       return { success: false, error: err };
     }
   }
+}
+
+function roundToPriceIncrement(price: number): number {
+  return Number(price.toFixed(price >= 1 ? 2 : 4));
 }

@@ -18,6 +18,7 @@ export function renderBacktestMarkdown(result: BacktestResult): string {
     `| Ending equity | ${formatCurrency(result.endingEquity)} |`,
     `| Stop loss | ${formatOptionalPercent(result.config.stopLossPct)} |`,
     `| Take profit | ${formatOptionalPercent(result.config.takeProfitPct)} |`,
+    `| Half-out trailing stop | ${result.config.trailingStopLoss ? "Enabled" : "Disabled"} |`,
     `| Slippage per side | ${result.config.slippageBps.toFixed(2)} bps |`,
     `| Commission per order | ${formatCurrency(result.config.commissionPerOrder)} |`,
     `| Sizing method | ${result.config.positionSizingMethod} |`,

@@ -177,6 +177,7 @@ async function loadBacktestConfig(path: string): Promise<BacktestConfig> {
     maxPositionPct: readNumber(parsed, "maxPositionPct"),
     stopLossPct: readNullableNumber(parsed, "stopLossPct"),
     takeProfitPct: readNullableNumber(parsed, "takeProfitPct"),
+    trailingStopLoss: readOptionalBoolean(parsed, "trailingStopLoss"),
     slippageBps: readNumber(parsed, "slippageBps"),
     commissionPerOrder: readNumber(parsed, "commissionPerOrder"),
     intrabarFillPriority: readIntrabarFillPriority(
@@ -255,6 +256,17 @@ function readBoolean(config: Record<string, unknown>, key: string): boolean {
   }
 
   throw new Error(`${key} must be a boolean`);
+}
+
+function readOptionalBoolean(
+  config: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  if (config[key] === undefined) {
+    return undefined;
+  }
+
+  return readBoolean(config, key);
 }
 
 function readStrategyParameters(
