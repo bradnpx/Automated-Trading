@@ -9,43 +9,7 @@ import TradeHistory from "@/components/TradeLogs/TradeHistory";
 import ScannerAlerts from "@/components/ScannerAlerts";
 import HealthMonitor from "@/components/HealthMonitor";
 import Nav from "@/components/Navigation";
-import { fetchTradeHistory } from "@/lib/fetchTradeHistory";
-import { useState, useEffect } from "react";
-
-type History = {
-  stats: [];
-  logs: Trade[];
-};
-
-type Trade = {
-  symbol: string;
-  strategy: string;
-  priceOpen: number;
-  priceClose: number;
-  pnl: number;
-  pnlPct: number;
-  isWinner: boolean;
-  openedOn: string;
-  closedOn: string;
-};
-
 export default function Home() {
-  const [history, setHistory] = useState<History>({
-    stats: [],
-    logs: [],
-  });
-
-  async function getHistory() {
-    const history = await fetchTradeHistory();
-    setHistory(history);
-  }
-
-  useEffect(() => {
-    getHistory();
-    const interval = setInterval(getHistory, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <>
       <Nav></Nav>

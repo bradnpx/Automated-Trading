@@ -3,7 +3,6 @@ import cors from "cors";
 import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
-import { getTradeHistory, fetchTradeHistory } from "./middleware/logger.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
 
 interface ApiConfig {
@@ -23,14 +22,14 @@ export function startApiService({
   app.use(cors());
   app.use(express.json());
 
-  // GET: Fetch Trade History
-  app.get("/history", async (req, res) => {
-    try {
-      const history = await fetchTradeHistory();
-      res.json(history);
-    } catch (err) {
-      res.status(500).json({ error: "Failed to fetch history" });
-    }
+  // GET: Fetch completed trades from the local lifecycle store.
+  app.get("/history", (req, res) => {
+    res.json(posManager.getClosedTrades());
+  });
+
+  // GET: Inspect the complete in-process portfolio lifecycle snapshot.
+  app.get("/portfolio-state", (req, res) => {
+    res.json(posManager.getPortfolioSnapshot());
   });
 
   // GET: Watchlist
@@ -90,9 +89,9 @@ export function startApiService({
       });
 
       console.log(`🔴 Manually closed position: ${symbol}`);
-      // Lock is cleared by onOrderUpdate on fill confirmation.
-      await posManager.syncPositions();
-      res.status(200).json({ message: `Position closed: ${symbol}` });
+      // The trade-update stream clears the lock and reconciles broker state once
+      // Alpaca confirms the order lifecycle event.
+      res.status(200).json({ message: `Position close submitted for ${symbol}` });
     } catch (err) {
       // Release the lock so the position can be retried.
       posManager.clearPendingExit(symbol);

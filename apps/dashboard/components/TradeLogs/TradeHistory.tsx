@@ -1,6 +1,6 @@
 "use client";
 import type { History, Trade } from "@/lib/fetchTradeHistory";
-import { useEffect, useState } from "react";
+import { ChangeEvent, useState } from "react";
 import LogItem from "./LogItem";
 import PerformanceStats from "./PerformanceStats";
 
@@ -11,6 +11,7 @@ type TradeHistoryProps = {
 export default function TradeHistory({ history }: TradeHistoryProps) {
   const logs = history?.groupedTrades ?? [];
   const [strategy, setStrategy] = useState<string>("none");
+  const [limit, setLimit] = useState<number>(0);
 
   const strategies = (): string[] => {
     const output = new Set<string>();
@@ -20,24 +21,22 @@ export default function TradeHistory({ history }: TradeHistoryProps) {
     return Array.from(output);
   };
 
-  function handleStrategyChange(e) {
+  function handleStrategyChange(e: ChangeEvent<HTMLSelectElement>) {
     setStrategy(e.target.value);
   }
 
-  function handleLimit(e) {
-    setLimit(e.target.value);
+  function handleLimit(e: ChangeEvent<HTMLInputElement>) {
+    const nextLimit = Number(e.target.value);
+    setLimit(Number.isFinite(nextLimit) && nextLimit > 0 ? nextLimit : 0);
   }
 
   function showTrade(trade: Trade, index: number): boolean {
     return (
       trade !== undefined &&
-      (trade.strategy === strategy || strategy === "none")
+      (strategy === "none" || trade.strategy === strategy) &&
+      (limit === 0 || index < limit)
     );
   }
-
-  useEffect(() => {
-    console.log(`strategy: ${strategy}`);
-  }, [strategy]);
 
   if (!history) {
     return <div>Nothing here but us mice!</div>;

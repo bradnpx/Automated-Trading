@@ -1,46 +1,62 @@
-import Alpaca from "@alpacahq/alpaca-trade-api";
-
 import { MASTER_WATCHLIST } from "./config/config.js";
 import { StockBlacklist } from "./functions/getStockBlacklist.js";
 import {
+  AccountSnapshot,
   BrokerPosition,
+  ClosedTrade,
+  LifecycleUpdateResult,
+  OpenTrade,
   Portfolio,
   PortfolioPosition,
+  PortfolioSnapshot,
+  TradeUpdate,
 } from "./models/portfolio.js";
+
+const BROKER_RECONCILIATION_DEBOUNCE_MS = 250;
+
+type BrokerClient = {
+  getPositions: () => Promise<BrokerPosition[]>;
+  getOrders: (options: Record<string, unknown>) => Promise<Array<{ symbol: string }>>;
+  getAccount: () => Promise<{
+    equity: string | number;
+    buying_power: string | number;
+    cash: string | number;
+    last_equity: string | number;
+  }>;
+};
 
 export class PositionManager {
   private readonly DEFAULT_STOP_LOSS_PCT = 2;
   private readonly DEFAULT_TAKE_PROFIT_PCT = 4;
-  private readonly alpaca: Alpaca;
+  private readonly alpaca: BrokerClient;
   private readonly portfolio = new Portfolio();
-  private blacklist: StockBlacklist | undefined;
+  private readonly blacklist = new StockBlacklist();
 
   /** Symbols with an exit order currently in flight at the broker. */
   private pendingExits = new Set<string>();
   /** Symbols with a buy order currently in flight at the broker. */
   private pendingBuys = new Set<string>();
+  private reconciliationTimer: NodeJS.Timeout | undefined;
+  private reconciliationInFlight = false;
 
-  /** Avoids fetching account equity for every second-level strategy evaluation. */
-  private cachedEquity: number | null = null;
-  private equityCacheTime = 0;
-  private readonly EQUITY_CACHE_TTL = 30_000;
-
-  constructor(alpaca: Alpaca) {
+  constructor(alpaca: BrokerClient) {
     this.alpaca = alpaca;
   }
 
   public async init(): Promise<this> {
-    if (!this.blacklist) {
-      this.blacklist = await StockBlacklist.getInstance(30_000);
-    }
+    await this.portfolio.initialize();
+    this.syncBlacklist();
     return this;
   }
 
   /**
-   * Reconciles quantity and order state with Alpaca. Stream marks are retained by
-   * Portfolio when they are newer than the broker snapshot's current_price.
+   * Reconciles broker-authoritative positions and open-order locks. It is called at
+   * boot, after broker lifecycle events (coalesced), and after a stream reconnect.
    */
   public async syncPositions(): Promise<PortfolioPosition[]> {
+    if (this.reconciliationInFlight) return this.getPositions();
+    this.reconciliationInFlight = true;
+
     try {
       const [currentPositions, openOrders] = await Promise.all([
         this.alpaca.getPositions(),
@@ -69,12 +85,10 @@ export class PositionManager {
       for (const symbol of this.pendingExits) {
         const positionGone = !this.portfolio.hasPosition(symbol);
         const noActiveOrder = !openOrderSymbols.has(symbol);
-        if (positionGone || noActiveOrder) {
-          console.log(`🔄 [STATE] Cleared stale pending exit for: ${symbol}`);
-          this.pendingExits.delete(symbol);
-        }
+        if (positionGone || noActiveOrder) this.pendingExits.delete(symbol);
       }
 
+      this.syncBlacklist();
       return positions;
     } catch (error) {
       console.error(
@@ -82,7 +96,31 @@ export class PositionManager {
         error,
       );
       return this.getPositions();
+    } finally {
+      this.reconciliationInFlight = false;
     }
+  }
+
+  /** Coalesces rapid partial-fill updates into one broker reconciliation. */
+  public requestBrokerReconciliation(
+    delayMs = BROKER_RECONCILIATION_DEBOUNCE_MS,
+  ): void {
+    if (this.reconciliationTimer) return;
+
+    this.reconciliationTimer = setTimeout(() => {
+      this.reconciliationTimer = undefined;
+      void Promise.all([this.syncPositions(), this.syncAccount()]);
+    }, delayMs);
+  }
+
+  /** Applies a trade update to local lifecycle state without making a REST request. */
+  public async applyTradeUpdate(
+    update: TradeUpdate,
+    strategyHint?: string,
+  ): Promise<LifecycleUpdateResult | undefined> {
+    const result = await this.portfolio.applyTradeUpdate(update, strategyHint);
+    if (result?.changed) this.syncBlacklist();
+    return result;
   }
 
   /** Applies a stream-derived mark and recalculates portfolio P&L in memory. */
@@ -94,12 +132,45 @@ export class PositionManager {
     return this.portfolio.updateMark(symbol, price, timestamp);
   }
 
+  /** Refreshes the shared account snapshot only when explicitly requested. */
+  public async syncAccount(): Promise<AccountSnapshot | null> {
+    try {
+      const account = await this.alpaca.getAccount();
+      this.portfolio.setAccount(account);
+      return this.portfolio.getAccount();
+    } catch (error) {
+      console.error("❌ [STATE] Failed to synchronize account:", error);
+      return this.portfolio.getAccount();
+    }
+  }
+
+  public getAccount(): AccountSnapshot | null {
+    return this.portfolio.getAccount();
+  }
+
   public getPositions(): PortfolioPosition[] {
     return this.portfolio.getPositions();
   }
 
   public getPositionSymbols(): string[] {
     return this.portfolio.getSymbols();
+  }
+
+  public getOpenTrade(symbol: string): OpenTrade | undefined {
+    return this.portfolio.getOpenTrade(symbol);
+  }
+
+  public getOpenTrades(): OpenTrade[] {
+    return this.portfolio.getOpenTrades();
+  }
+
+  public getClosedTrades(): ClosedTrade[] {
+    return this.portfolio.getClosedTrades();
+  }
+
+  /** Exposes the complete local lifecycle snapshot for diagnostics and API views. */
+  public getPortfolioSnapshot(): PortfolioSnapshot {
+    return this.portfolio.getSnapshot();
   }
 
   public hasPosition(symbol: string): boolean {
@@ -111,14 +182,7 @@ export class PositionManager {
   }
 
   public canOpenPosition(symbol: string): boolean {
-    const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
-    if (blacklistedSymbols.includes(symbol)) {
-      // console.log(
-      //   `⛔ [RISK] Buy signal blocked for ${symbol} (traded yesterday/blacklisted)`,
-      // );
-      return false;
-    }
-
+    if (this.blacklist.getSymbols().includes(symbol)) return false;
     return !this.pendingBuys.has(symbol) && !this.portfolio.hasPosition(symbol);
   }
 
@@ -138,25 +202,16 @@ export class PositionManager {
     this.pendingExits.delete(symbol);
   }
 
+  /** Retrieves current equity only when an entry requires a fresh sizing input. */
   public async getOrFetchEquity(): Promise<number> {
-    const now = Date.now();
-    if (
-      this.cachedEquity !== null &&
-      now - this.equityCacheTime < this.EQUITY_CACHE_TTL
-    ) {
-      return this.cachedEquity;
-    }
+    const current = this.portfolio.getAccount();
+    const updatedAt = current ? Date.parse(current.updatedAt) : Number.NaN;
+    const isFresh = Number.isFinite(updatedAt) && Date.now() - updatedAt < 30_000;
+    if (current && isFresh) return current.equity;
 
-    try {
-      const account = await this.alpaca.getAccount();
-      this.cachedEquity = Number(account.equity);
-      this.equityCacheTime = now;
-      return this.cachedEquity;
-    } catch (error) {
-      console.error("❌ [POS] Failed to fetch account equity:", error);
-      if (this.cachedEquity !== null) return this.cachedEquity;
-      throw error;
-    }
+    const refreshed = await this.syncAccount();
+    if (refreshed) return refreshed.equity;
+    throw new Error("Account equity is unavailable for position sizing.");
   }
 
   /**
@@ -205,5 +260,9 @@ export class PositionManager {
     }
 
     return { shouldExit: false, reason: "" };
+  }
+
+  private syncBlacklist(): void {
+    this.blacklist.sync(this.portfolio.getTradedSymbolsOn());
   }
 }

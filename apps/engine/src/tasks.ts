@@ -1,49 +1,40 @@
-const BROKER_RECONCILIATION_INTERVAL_MS = 30_000;
+import { AccountPayload } from "@my-platform/types";
+
 const PORTFOLIO_BROADCAST_INTERVAL_MS = 1_000;
-const ACCOUNT_REFRESH_INTERVAL_MS = 2_000;
 
+/**
+ * Broadcasts already-local state for the dashboard. Broker synchronization occurs
+ * at boot, after a trade-stream reconnect, and after broker order events.
+ */
 export function startBackgroundTasks(
-  alpaca: any,
-  posManager: any,
-  broadcaster: any,
+  posManager: {
+    getPositions: () => unknown[];
+    getAccount: () => {
+      equity: number;
+      buyingPower: number;
+      cash: number;
+      lastEquity: number;
+    } | null;
+  },
+  broadcaster: {
+    broadcastPortfolio: (positions: unknown[]) => void;
+    broadcastAccount: (account: AccountPayload) => void;
+  },
 ) {
-  // Broker reconciliation is intentionally slower than market marking. Alpaca's
-  // trade-update stream handles fills immediately; this catches missed events.
-  setInterval(() => {
-    void posManager.syncPositions();
-  }, BROKER_RECONCILIATION_INTERVAL_MS);
-
-  // Portfolio marks are updated by the market trade stream and broadcast on a
-  // predictable one-second cadence for the dashboard.
   setInterval(() => {
     broadcaster.broadcastPortfolio(posManager.getPositions());
+
+    const account = posManager.getAccount();
+    if (!account) return;
+    broadcaster.broadcastAccount({
+      equity: account.equity,
+      buying_power: account.buyingPower,
+      cash: account.cash,
+      day_pl: account.equity - account.lastEquity,
+      day_pl_pct:
+        account.lastEquity === 0
+          ? 0
+          : account.equity / account.lastEquity - 1,
+    });
   }, PORTFOLIO_BROADCAST_INTERVAL_MS);
-
-  // Keep account summary behavior separate so a slow account request never blocks
-  // the one-second portfolio feed.
-  let accountRefreshInFlight = false;
-  setInterval(() => {
-    if (accountRefreshInFlight) return;
-    accountRefreshInFlight = true;
-
-    void alpaca
-      .getAccount()
-      .then((account: any) => {
-        const equity = Number(account.equity);
-        const lastEquity = Number(account.last_equity);
-        broadcaster.broadcastAccount({
-          equity,
-          buying_power: Number(account.buying_power),
-          cash: Number(account.cash),
-          day_pl: equity - lastEquity,
-          day_pl_pct: lastEquity === 0 ? 0 : equity / lastEquity - 1,
-        });
-      })
-      .catch((error: unknown) => {
-        console.error("❌ [TASKS] Account refresh failed:", error);
-      })
-      .finally(() => {
-        accountRefreshInFlight = false;
-      });
-  }, ACCOUNT_REFRESH_INTERVAL_MS);
 }

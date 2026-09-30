@@ -15,7 +15,7 @@ type TradeProps = {
 };
 
 export default function Home() {
-  const [tradeHistory, setTradeHistory] = useState({
+  const [tradeHistory, setTradeHistory] = useState<History>({
     stats: [],
     groupedTrades: [],
     rawLogs: [],
