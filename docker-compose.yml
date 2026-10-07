@@ -7,4 +7,4 @@ services:
     image: redis:alpine
   dashboard:
     build: ./apps/dashboard
-    ports: ["3000:3000"]
+    ports: ["3224:3224"]

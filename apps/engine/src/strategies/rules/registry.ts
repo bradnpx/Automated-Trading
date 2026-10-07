@@ -20,6 +20,13 @@ export const StatelessRules: Partial<
     return data ? data.percentageChange >= 10 : false;
   },
   isAboveRollingVWAP: ({ bar, metrics }) => bar.close > metrics.vwapClose,
+  isATRVolatilityCompressed: ({ bar, metrics }) => {
+    const atr = ATR(14);
+    const atrAverage = SMA(atr, 50);
+    const compressionVariable = 0.80;
+    const isCompressed = atr < atrAverage * compressionVariable;
+    
+  },
   isBelowRollingVWAPWithDistance: ({ bar, metrics }) =>
     metrics.vwapTypical - bar.close >= 0.5,
   isBounced: ({ bar, history }) => {

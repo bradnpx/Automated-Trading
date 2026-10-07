@@ -2,6 +2,7 @@ import { IStrategy } from "./IStrategy";
 import { BasicStrategy } from "./BasicStrategy";
 import { FifteenMinMorningBounce } from "./FifteenMinMorningBounce";
 import { PDLSweepVWAPReclaim } from "./pdl-vwap";
+import { pdlSweepVWAPReclaimBEAR } from "./pdl-vwap";
 import { BiotechMomentumStrategy } from "./BiotechMomentum";
 import { DayTradeMicroScalp } from "./DayTradeMicroScalp";
 import { BuyAndHold } from "./BuyAndHold";
@@ -24,7 +25,7 @@ export type StrategyIdentifier =
   | "buyAndHold"
   | "donchianBreakout"
   | "rsiReversion"
-  | "smaCross"
+  | "smaCross";
   // | "vixVWAPReversion";
 
 type StrategyCreator = (parameters: StrategyParameterOverrides) => IStrategy;

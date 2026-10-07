@@ -19,6 +19,7 @@ export type StrategyCriterion =
   | "isAlive"
   | "isAboveRollingVWAP"
   | "isAboveTen"
+  | "isATRVolatilityCompressed"
   | "isBelowRollingVWAPWithDistance"
   | "isBounced"
   | "isBullFlagForming"
