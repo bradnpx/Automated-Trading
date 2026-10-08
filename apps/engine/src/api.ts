@@ -4,6 +4,7 @@ import { PositionManager } from "./positionManager.js";
 import { Executor } from "./executor.js";
 import { Broadcaster } from "./broadcaster.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
+import { getTradeHistory } from "./middleware/logger.js";
 import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
 
 interface ApiConfig {
@@ -25,11 +26,14 @@ export function startApiService({
   app.use(cors());
   app.use(express.json());
 
-  // GET: Fetch locally persisted trade lifecycles; no broker history lookup.
+  // GET: Fetch local lifecycle and execution journals; no broker history lookup.
   app.get("/history", async (req, res) => {
     try {
-      const history = await lifecycleStore.getLifecycles();
-      res.json(history);
+      const [lifecycles, records] = await Promise.all([
+        lifecycleStore.getLifecycles(),
+        getTradeHistory(),
+      ]);
+      res.json({ lifecycles, records });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch history" });
     }

@@ -39,7 +39,12 @@ export default function TradeHistory({ history }: TradeHistoryProps) {
     <>
       <PerformanceStats history={history} strategy={strategy} limit={limit} />
       <div className="flex p-4 border-b border-slate-100 font-bold text-slate-100 text-sm">
-        <div>Trade History ({visibleTrades.length})</div>
+        <div>
+          Trade History ({visibleTrades.length})
+          <span className="ml-3 text-xs font-normal text-slate-400">
+            Select a row to inspect all associated fills
+          </span>
+        </div>
         <div className="px-10">
           <label htmlFor="strategy">Strategy: </label>
           <select
@@ -73,18 +78,12 @@ export default function TradeHistory({ history }: TradeHistoryProps) {
             <th className="px-4 py-2">Avg Exit Price</th>
             <th className="px-4 py-2">Realized P&amp;L</th>
             <th className="px-4 py-2">Status</th>
-            <th className="px-4 py-2">Exit Details</th>
             <th className="px-4 py-2">Strategy</th>
           </tr>
         </thead>
         <tbody>
           {displayedTrades.map((trade: Trade, index) => (
-            <tr
-              key={trade.id}
-              className="border-t border-slate-50 hover:bg-slate-50 h-2"
-            >
-              <LogItem id={index + 1} trade={trade} />
-            </tr>
+            <LogItem key={trade.id} id={index + 1} trade={trade} />
           ))}
         </tbody>
       </table>
