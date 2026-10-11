@@ -2,6 +2,7 @@ import { IStrategy } from "./IStrategy";
 import { BasicStrategy } from "./BasicStrategy";
 import { FifteenMinMorningBounce } from "./FifteenMinMorningBounce";
 import { PDLSweepVWAPReclaim } from "./pdl-vwap";
+import { pdlSweepVWAPReclaimBEAR } from "./pdl-vwap";
 import { BiotechMomentumStrategy } from "./BiotechMomentum";
 import { DayTradeMicroScalp } from "./DayTradeMicroScalp";
 import { BuyAndHold } from "./BuyAndHold";
@@ -11,18 +12,20 @@ import { SMACross } from "./SMACross";
 // import { vixVWAPReversion } from "./vixVWAPReversion";
 import { StrategyParameterOverrides } from "./strategyConfig";
 import { BullFlagMomentum } from "./BullFlagMomentum";
+import { PDLSweepVWAPReclaimBEAR } from "./pdl-vwap-bear";
 
 export type StrategyIdentifier =
   | "basicStrategy"
   | "bullFlagMomentum"
   | "dayTradeMicroScalp"
   | "pdlSweepVWAPReclaim"
+  | "pdlSweepVWAPReclaimBEAR"
   | "biotechMomentum"
   | "fifteenMinMorningBounce"
   | "buyAndHold"
   | "donchianBreakout"
   | "rsiReversion"
-  | "smaCross"
+  | "smaCross";
   // | "vixVWAPReversion";
 
 type StrategyCreator = (parameters: StrategyParameterOverrides) => IStrategy;
@@ -32,6 +35,7 @@ export class StrategyFactory {
     basicStrategy: () => new BasicStrategy(),
     bullFlagMomentum: (parameters) => new BullFlagMomentum(parameters),
     pdlSweepVWAPReclaim: () => new PDLSweepVWAPReclaim(),
+    pdlSweepVWAPReclaimBEAR: () => new PDLSweepVWAPReclaimBEAR(),
     dayTradeMicroScalp: () => new DayTradeMicroScalp(),
     biotechMomentum: () => new BiotechMomentumStrategy(),
     fifteenMinMorningBounce: () => new FifteenMinMorningBounce(),

@@ -15,7 +15,8 @@ export class DonchianBreakout implements IStrategy {
 
   private criteria: StrategyCriterion[] = [
     "isDonchianBreakout",
-    "isDonchianBreakdown",
+    // "isDonchianBreakdown",
+    "isElevatedRVOL",
   ];
 
   constructor(period: number = 20) {

@@ -6,6 +6,7 @@ export function startBackgroundTasks(
   alpaca: any,
   posManager: any,
   broadcaster: any,
+  executor: any,
 ) {
   // Broker reconciliation is intentionally slower than market marking. Alpaca's
   // trade-update stream handles fills immediately; this catches missed events.

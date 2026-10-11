@@ -20,7 +20,7 @@ export class Executor {
         symbol,
         qty,
         side: "buy",
-        type: "market",
+        type: isExtendedHours ? "limit" : "market",
         time_in_force: "day",
         extended_hours: isExtendedHours,
       });
@@ -30,9 +30,11 @@ export class Executor {
       // logTrade({...order, filled_at: new Date()});
       return order;
     } catch (err) {
-      if (err.response.data.message.includes('fractionable')) {
-        console.error(`🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, rounding up and retrying...`);   
-        const rounded: number = Math.ceil(qty)
+      if (err.response.data.message.includes("fractionable")) {
+        console.error(
+          `🔁 [EXEC] Fractional Buy Order Failed for ${symbol}, rounding up and retrying...`,
+        );
+        const rounded: number = Math.ceil(qty);
         try {
           const order = await this.alpaca.createOrder({
             symbol,
@@ -51,8 +53,8 @@ export class Executor {
           console.error(
             `❌ [EXEC] Buy Order Failed for ${symbol}:`,
             err.response.data.message,
-          );        
-          }
+          );
+        }
       } else {
         console.error(
           `❌ [EXEC] Buy Order Failed for ${symbol}:`,
