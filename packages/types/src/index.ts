@@ -76,6 +76,10 @@ export interface TradeRecord {
   side: "buy" | "sell";
   qty: string;
   price: string;
+  lifecycle_id?: string;
+  order_id?: string;
+  execution_id?: string;
+  order_type?: string;
   strategy?: string;
   take_profit_pct?: number;
   stop_loss_pct?: number;
@@ -85,6 +89,63 @@ export interface TradeRecord {
   timestamp: string;
   reason: string;
   win_status: "WIN" | "LOSS" | "BREAKEVEN" | "OPENING";
+}
+
+export type TradeLifecycleStatus = "open" | "partially_closed" | "closed";
+
+export type TradeExitReason =
+  | "TAKE_PROFIT"
+  | "TAKE_PROFIT_HALF"
+  | "TRAILING_STOP_LOSS"
+  | "STOP_LOSS"
+  | "STRATEGY_SELL"
+  | "MANUAL_CLOSE"
+  | "TRAILING_STOP_SETUP_FAILED"
+  | "EXIT";
+
+export interface TradeLifecycleFill {
+  executionId: string;
+  orderId: string;
+  orderType: string;
+  side: "buy" | "sell";
+  price: number;
+  quantity: number;
+  filledAt: string;
+  reason?: TradeExitReason;
+}
+
+export interface TradeLifecycleProfile {
+  strategy: string;
+  takeProfitPct: number;
+  stopLossPct: number;
+  trailingStopLoss: boolean;
+}
+
+export interface TradeLifecycleExitIntent {
+  orderId: string;
+  reason: TradeExitReason;
+  submittedAt: string;
+}
+
+export interface TradeLifecycle {
+  id: string;
+  symbol: string;
+  status: TradeLifecycleStatus;
+  openedAt: string;
+  updatedAt: string;
+  closedAt?: string;
+  profile: TradeLifecycleProfile;
+  entryFills: TradeLifecycleFill[];
+  exitFills: TradeLifecycleFill[];
+  entryQuantity: number;
+  exitedQuantity: number;
+  remainingQuantity: number;
+  averageEntryPrice: number;
+  averageExitPrice?: number;
+  realizedPnl: number;
+  realizedPnlPct: number;
+  pendingExit?: TradeLifecycleExitIntent;
+  trailingStopOrderId?: string;
 }
 
 export interface HealthStatus {

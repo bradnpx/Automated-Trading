@@ -1,25 +1,13 @@
 "use client";
-import { useState, useEffect } from "react";
-import AccountSummary from "@/components/AccountSummary";
-import PerformanceStats from "@/components/TradeLogs/PerformanceStats";
-import TradeHistory from "@/components/TradeLogs/TradeHistory";
+import { useEffect, useState } from "react";
 import Nav from "@/components/Navigation";
-import { fetchTradeHistory, fetchWatchlist } from "@/lib/fetchTradeHistory";
-import type { Trade, History, TradeStats } from "@/lib/fetchTradeHistory";
+import { fetchTradeHistory, type History } from "@/lib/fetchTradeHistory";
 import Calendar from "@/components/calendar/Calendar";
 
-type TradeProps = {
-  stats: TradeStats[];
-  groupedTrade: History[];
-  rawLogs: any[];
-};
+const EMPTY_HISTORY: History = { groupedTrades: [], rawLogs: [] };
 
 export default function Home() {
-  const [tradeHistory, setTradeHistory] = useState({
-    stats: [],
-    groupedTrades: [],
-    rawLogs: [],
-  });
+  const [tradeHistory, setTradeHistory] = useState<History>(EMPTY_HISTORY);
 
   async function getHistory() {
     const history = await fetchTradeHistory();

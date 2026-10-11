@@ -17,6 +17,7 @@ import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
 import { fetchTradeHistory } from "./middleware/logger.js";
 import { StockBlacklist } from "./functions/getStockBlacklist.js";
+import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,8 @@ async function main() {
   const alpaca = new Alpaca();
   const blacklist = await StockBlacklist.getInstance(30000);
   const posManager = new PositionManager(alpaca);
+  const lifecycleStore = new TradeLifecycleStore();
+  await lifecycleStore.init();
   await posManager.init();
   const executor = new Executor(alpaca);
   const broadcaster = new Broadcaster(4000);
@@ -36,6 +39,7 @@ async function main() {
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
+  posManager.restoreLifecycleState(await lifecycleStore.getOpenLifecycles());
 
   console.log("🔍[BOOTSTRAP] Executing primary gainer discovery sweep...");
   try {
@@ -62,7 +66,13 @@ async function main() {
   await warmupStrategies(alpaca, strategies);
 
   // 4. START INDEPENDENT SUBSYSTEMS
-  startApiService({ posManager, executor, broadcaster, engineState });
+  startApiService({
+    posManager,
+    executor,
+    broadcaster,
+    engineState,
+    lifecycleStore,
+  });
   startBackgroundTasks(alpaca, posManager, broadcaster, executor);
 
   const pipeline = new StreamPipeline(
@@ -73,8 +83,10 @@ async function main() {
     scanner,
     strategies,
     engineState,
+    lifecycleStore,
   );
   pipeline.initialize();
+  await pipeline.resumePendingTrailingStops();
 
   await executeDynamicScannerSweep(alpaca, strategies, pipeline);
 

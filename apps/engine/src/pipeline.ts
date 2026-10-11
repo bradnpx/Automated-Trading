@@ -6,6 +6,7 @@ import {
   syncTrackingCaches,
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
+import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
 import type { StrategyEvaluationOptions } from "./strategies/IStrategy.js";
 
 type MarketTrade = {
@@ -48,6 +49,7 @@ export class StreamPipeline {
     private scanner: any,
     private strategies: Map<string, any>,
     private engineState: { isKilled: boolean },
+    private lifecycleStore?: TradeLifecycleStore,
   ) {}
 
   public initialize(): void {
@@ -141,6 +143,7 @@ export class StreamPipeline {
       if (!order?.symbol) return;
 
       if (event === "canceled" || event === "rejected" || event === "expired") {
+        await this.lifecycleStore?.clearExitIntent(order.id);
         this.posManager.clearPendingExit(order.symbol);
         this.posManager.clearPendingBuy(order.symbol);
         if (order.type === "trailing_stop") {
@@ -157,7 +160,7 @@ export class StreamPipeline {
       if (event !== "fill" && event !== "partial_fill") return;
 
       let fillPrice = Number(price || 0);
-      let quantity = Number(fillQty || 0);
+      let quantity = Number(data.qty || fillQty || 0);
       if ((fillPrice === 0 || quantity === 0) && event === "fill") {
         fillPrice = Number(order.filled_avg_price || 0);
         quantity = Number(order.filled_qty || 0);
@@ -197,35 +200,74 @@ export class StreamPipeline {
         order.side === "buy"
           ? this.posManager.captureEntryProfile(order.symbol)
           : this.posManager.getExitProfile(order.symbol);
+      const orderType = order.type ?? order.order_type ?? "market";
+      const exitReason =
+        order.side === "sell"
+          ? await this.lifecycleStore?.getExitReason(order.id, orderType)
+          : undefined;
+      const timestamp =
+        data.timestamp ?? order.filled_at ?? new Date().toISOString();
+      const executionId =
+        data.execution_id ??
+        `${order.id}:${event}:${timestamp}:${fillPrice}:${quantity}`;
 
-      await logTrade({
-        symbol: order.symbol,
-        side: order.side,
-        qty: quantity.toString(),
-        price: fillPrice.toString(),
-        strategy: profile.strategy,
-        take_profit_pct: profile.takeProfitPct,
-        stop_loss_pct: profile.stopLossPct,
-        trailing_stop_loss: profile.trailingStopLoss,
-        pnl,
-        pnl_pct: pnlPct,
-        timestamp: new Date().toISOString(),
-        reason:
-          order.side === "buy"
-            ? profile.strategy
-            : order.type === "trailing_stop"
-              ? "TRAILING_STOP_LOSS"
-              : this.posManager.getPendingTrailingStopEntryPrice(order.symbol)
-                ? "TAKE_PROFIT_HALF"
-                : "Exit",
-        win_status: winStatus,
-      });
+      let lifecycleId: string | undefined;
+      let shouldLogFill = true;
+      try {
+        const lifecycleResult = await this.lifecycleStore?.recordFill({
+          executionId,
+          orderId: order.id,
+          orderType,
+          side: order.side,
+          symbol: order.symbol,
+          price: fillPrice,
+          quantity,
+          filledAt: timestamp,
+          profile,
+          ...(exitReason ? { reason: exitReason } : {}),
+        });
+        lifecycleId = lifecycleResult?.lifecycle?.id;
+        shouldLogFill = lifecycleResult?.recorded ?? true;
+      } catch (error) {
+        console.error(
+          `❌ [LIFECYCLE] Failed to persist ${order.symbol} fill; execution processing will continue:`,
+          error,
+        );
+      }
+
+      if (shouldLogFill) {
+        await logTrade({
+          symbol: order.symbol,
+          side: order.side,
+          qty: quantity.toString(),
+          price: fillPrice.toString(),
+          lifecycle_id: lifecycleId,
+          order_id: order.id,
+          execution_id: executionId,
+          order_type: orderType,
+          strategy: profile.strategy,
+          take_profit_pct: profile.takeProfitPct,
+          stop_loss_pct: profile.stopLossPct,
+          trailing_stop_loss: profile.trailingStopLoss,
+          pnl,
+          pnl_pct: pnlPct,
+          timestamp,
+          reason:
+            order.side === "buy" ? profile.strategy : (exitReason ?? "EXIT"),
+          win_status: winStatus,
+        });
+      }
+
+      if (event === "fill" && order.side === "sell") {
+        await this.lifecycleStore?.clearExitIntent(order.id);
+      }
 
       await this.posManager.syncPositions();
       this.subscribeToSymbols(this.posManager.getPositionSymbols());
       this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
 
       if (
+        shouldLogFill &&
         event === "fill" &&
         order.side === "sell" &&
         order.type !== "trailing_stop" &&
@@ -293,9 +335,15 @@ export class StreamPipeline {
         }
 
         this.posManager.beginTrailingStop(symbol, entryPrice);
-        await this.executor.closePosition(symbol, halfQuantity);
+        const order = await this.executor.closePosition(symbol, halfQuantity);
+        await this.recordExitIntent(symbol, order?.id, "TAKE_PROFIT_HALF");
       } else {
-        await this.executor.closePosition(symbol);
+        const order = await this.executor.closePosition(symbol);
+        await this.recordExitIntent(
+          symbol,
+          order?.id,
+          decision.reason.startsWith("STOP_LOSS") ? "STOP_LOSS" : "TAKE_PROFIT",
+        );
       }
       this.broadcaster.broadcastSignal({
         symbol,
@@ -315,6 +363,33 @@ export class StreamPipeline {
     return true;
   }
 
+  public async resumePendingTrailingStops(): Promise<void> {
+    for (const symbol of this.posManager.getPendingTrailingStopSymbols()) {
+      const entryPrice =
+        this.posManager.getPendingTrailingStopEntryPrice(symbol);
+      if (entryPrice === undefined) continue;
+
+      try {
+        const order = await this.executor.placeBreakEvenTrailingStop(
+          symbol,
+          entryPrice,
+        );
+        if (!order?.id) {
+          throw new Error(`Missing trailing-stop order id for ${symbol}`);
+        }
+        await this.lifecycleStore?.activateTrailingStop(symbol, order.id);
+        this.posManager.activateTrailingStop(symbol);
+        this.posManager.cancelPendingTrailingStop(symbol);
+        this.posManager.clearPendingExit(symbol);
+      } catch (error) {
+        console.error(
+          `❌ [PIPELINE] Failed to restore trailing-stop protection for ${symbol}:`,
+          error,
+        );
+      }
+    }
+  }
+
   private async installTrailingStopAfterHalfExit(
     symbol: string,
   ): Promise<void> {
@@ -322,7 +397,14 @@ export class StreamPipeline {
     if (entryPrice === undefined) return;
 
     try {
-      await this.executor.placeBreakEvenTrailingStop(symbol, entryPrice);
+      const order = await this.executor.placeBreakEvenTrailingStop(
+        symbol,
+        entryPrice,
+      );
+      if (!order?.id) {
+        throw new Error(`Missing trailing-stop order id for ${symbol}`);
+      }
+      await this.lifecycleStore?.activateTrailingStop(symbol, order.id);
       this.posManager.activateTrailingStop(symbol);
       this.posManager.cancelPendingTrailingStop(symbol);
       this.posManager.clearPendingExit(symbol);
@@ -341,7 +423,12 @@ export class StreamPipeline {
 
       try {
         this.posManager.markPendingExit(symbol);
-        await this.executor.closePosition(symbol);
+        const order = await this.executor.closePosition(symbol);
+        await this.recordExitIntent(
+          symbol,
+          order?.id,
+          "TRAILING_STOP_SETUP_FAILED",
+        );
       } catch (closeError) {
         console.error(
           `❌ [PIPELINE] Failed to close unprotected remainder for ${symbol}:`,
@@ -409,7 +496,8 @@ export class StreamPipeline {
     ) {
       this.posManager.markPendingExit(bar.symbol);
       try {
-        await this.executor.closePosition(bar.symbol);
+        const order = await this.executor.closePosition(bar.symbol);
+        await this.recordExitIntent(bar.symbol, order?.id, "STRATEGY_SELL");
         this.broadcaster.broadcastSignal(signal);
       } catch (error) {
         console.error(
@@ -462,6 +550,25 @@ export class StreamPipeline {
     await this.executor.placeBuyOrder(symbol, quantity);
     await this.posManager.syncPositions();
     StreamPipeline.ranTestBuy = true;
+  }
+
+  private async recordExitIntent(
+    symbol: string,
+    orderId: string | undefined,
+    reason:
+      | "TAKE_PROFIT"
+      | "TAKE_PROFIT_HALF"
+      | "STOP_LOSS"
+      | "STRATEGY_SELL"
+      | "TRAILING_STOP_SETUP_FAILED",
+  ): Promise<void> {
+    if (!orderId) return;
+
+    await this.lifecycleStore?.recordExitIntent(symbol, {
+      orderId,
+      reason,
+      submittedAt: new Date().toISOString(),
+    });
   }
 
   public subscribeToNewSymbols(symbols: string[]): void {

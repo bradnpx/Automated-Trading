@@ -1,4 +1,4 @@
-import fs from "fs/promises";
+import { appendFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { TradeRecord, WinRateReport } from "@my-platform/types";
 import Alpaca from "@alpacahq/alpaca-trade-api";
@@ -8,7 +8,8 @@ const LOG_PATH = path.resolve(process.cwd(), "logs/trades.json");
 export async function logTrade(trade: TradeRecord) {
   const entry = JSON.stringify(trade).replace(/\n/g, "") + "\n";
   try {
-    await fs.appendFile(LOG_PATH, entry, "utf8");
+    await mkdir(path.dirname(LOG_PATH), { recursive: true });
+    await appendFile(LOG_PATH, entry, "utf8");
   } catch (err) {
     console.error("❌ Failed to write to log file", err);
   }
@@ -45,7 +46,7 @@ export async function fetchTradeHistory() {
 }
 export async function getTradeHistory() {
   try {
-    const data = await fs.readFile(LOG_PATH, "utf8");
+    const data = await readFile(LOG_PATH, "utf8");
 
     // Split by line, trim whitespace, and filter out empty lines
     return data
