@@ -86,13 +86,17 @@ export class BacktestEngine {
 
       const bracketExit = this.getBracketExit(bar, state.positions.get(bar.symbol), resolvedConfig);
       if (bracketExit) {
-        this.closePosition(
-          bar,
-          bracketExit.price,
-          bracketExit.reason,
-          state,
-          resolvedConfig,
-        );
+        if (bracketExit.reason === "take-profit-half") {
+          this.takeProfitHalf(bar, bracketExit.price, state, resolvedConfig);
+        } else {
+          this.closePosition(
+            bar,
+            bracketExit.price,
+            bracketExit.reason,
+            state,
+            resolvedConfig,
+          );
+        }
       }
 
       const strategy = this.getStrategy(
@@ -264,6 +268,34 @@ export class BacktestEngine {
       return null;
     }
 
+    if (
+      position.trailingStopPrice !== null &&
+      position.trailingDistance !== null
+    ) {
+      if (
+        config.intrabarFillPriority === "stop-first" &&
+        bar.low <= position.trailingStopPrice
+      ) {
+        return { price: position.trailingStopPrice, reason: "trailing-stop" };
+      }
+
+      const highWaterMark = Math.max(
+        position.highWaterMark ?? position.entryPrice,
+        bar.high,
+      );
+      position.highWaterMark = highWaterMark;
+      position.trailingStopPrice = highWaterMark - position.trailingDistance;
+
+      if (bar.low <= position.trailingStopPrice) {
+        return {
+          price: position.trailingStopPrice,
+          reason: "trailing-stop",
+        };
+      }
+
+      return null;
+    }
+
     const hitStop =
       position.stopPrice !== null && bar.low <= position.stopPrice;
     const hitTarget =
@@ -285,7 +317,10 @@ export class BacktestEngine {
     }
 
     if (hitTarget && position.targetPrice !== null) {
-      return { price: position.targetPrice, reason: "take-profit" };
+      return {
+        price: position.targetPrice,
+        reason: config.trailingStopLoss ? "take-profit-half" : "take-profit",
+      };
     }
 
     return null;
@@ -339,6 +374,9 @@ export class BacktestEngine {
         config.takeProfitPct === null
           ? null
           : fillPrice * (1 + config.takeProfitPct),
+      trailingStopPrice: null,
+      trailingDistance: null,
+      highWaterMark: null,
       strategyId: config.strategyId,
       entrySignal: signal,
     });
@@ -352,6 +390,69 @@ export class BacktestEngine {
       quantity,
       fillPrice,
     });
+  }
+
+  private takeProfitHalf(
+    bar: Bar,
+    unadjustedExitPrice: number,
+    state: RunningState,
+    config: ResolvedBacktestConfig,
+  ): void {
+    const position = state.positions.get(bar.symbol);
+    if (!position || !(position.quantity > 0)) {
+      return;
+    }
+
+    const exitQuantity = position.quantity / 2;
+    const originalQuantity = position.quantity;
+    const entryCommission =
+      position.entryCommission * (exitQuantity / originalQuantity);
+    const exitPrice = applySlippage(
+      unadjustedExitPrice,
+      "sell",
+      config.slippageBps,
+    );
+    const proceeds = exitQuantity * exitPrice;
+    const grossPnl = (exitPrice - position.entryPrice) * exitQuantity;
+    const netPnl = grossPnl - entryCommission - config.commissionPerOrder;
+
+    state.cash += proceeds - config.commissionPerOrder;
+    state.turnoverNotional += proceeds;
+    state.orders.push({
+      orderId: this.nextOrderId(state),
+      symbol: position.symbol,
+      side: "sell",
+      reason: "take-profit-half",
+      submittedAt: toIsoString(bar.timestamp),
+      status: "filled",
+      quantity: exitQuantity,
+      fillPrice: exitPrice,
+    });
+    state.trades.push({
+      tradeId: this.nextTradeId(state),
+      symbol: position.symbol,
+      strategyId: position.strategyId,
+      entryTimestamp: position.entryTimestamp,
+      exitTimestamp: toIsoString(bar.timestamp),
+      quantity: exitQuantity,
+      entryPrice: position.entryPrice,
+      exitPrice,
+      grossPnl,
+      netPnl,
+      returnPct: netPnl / (position.entryPrice * exitQuantity),
+      entryCommission,
+      exitCommission: config.commissionPerOrder,
+      exitReason: "take-profit-half",
+      entrySignalReason: position.entrySignal.reason,
+    });
+
+    position.quantity -= exitQuantity;
+    position.entryCommission -= entryCommission;
+    position.stopPrice = null;
+    position.targetPrice = null;
+    position.highWaterMark = unadjustedExitPrice;
+    position.trailingDistance = unadjustedExitPrice - position.entryPrice;
+    position.trailingStopPrice = position.entryPrice;
   }
 
   private closePosition(

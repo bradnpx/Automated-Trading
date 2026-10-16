@@ -9,31 +9,13 @@ import TradeHistory from "@/components/TradeLogs/TradeHistory";
 import ScannerAlerts from "@/components/ScannerAlerts";
 import HealthMonitor from "@/components/HealthMonitor";
 import Nav from "@/components/Navigation";
-import { fetchTradeHistory } from "@/lib/fetchTradeHistory";
+import { fetchTradeHistory, type History } from "@/lib/fetchTradeHistory";
 import { useState, useEffect } from "react";
 
-type History = {
-  stats: [];
-  logs: Trade[];
-};
-
-type Trade = {
-  symbol: string;
-  strategy: string;
-  priceOpen: number;
-  priceClose: number;
-  pnl: number;
-  pnlPct: number;
-  isWinner: boolean;
-  openedOn: string;
-  closedOn: string;
-};
+const EMPTY_HISTORY: History = { groupedTrades: [], rawLogs: [] };
 
 export default function Home() {
-  const [history, setHistory] = useState<History>({
-    stats: [],
-    logs: [],
-  });
+  const [history, setHistory] = useState<History>(EMPTY_HISTORY);
 
   async function getHistory() {
     const history = await fetchTradeHistory();

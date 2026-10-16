@@ -14,6 +14,7 @@ export const DEFAULT_BACKTEST_CONFIG: Omit<
   maxPositionPct: 0.2,
   stopLossPct: 0.02,
   takeProfitPct: 0.022,
+  trailingStopLoss: false,
   slippageBps: 5,
   commissionPerOrder: 0,
   intrabarFillPriority: "stop-first",

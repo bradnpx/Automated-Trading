@@ -65,9 +65,9 @@ export class Executor {
   }
 
   /**
-   * Closes an existing position entirely
+   * Closes all or part of an existing position.
    */
-  async closePosition(symbol: string, quantity?: number) {
+  async closePosition(symbol: string, requestedQuantity?: number) {
     try {
       //cancel outstanding orders pertaining to the symbol to 'clear out the lane'
       const orders = await this.alpaca.getOrders({
@@ -110,10 +110,14 @@ export class Executor {
         throw err;
       }
 
-      // Determine if the order sells all or partial holdings
-      const qty: number = quantity ?? position.qty;
-      if (!Number.isFinite(qty) || qty <= 0 || qty > position.qty) {
-        throw new Error(`Invalid sell quantity for ${symbol}: ${qty}`);
+      const positionQuantity = Number(position.qty);
+      const quantity = requestedQuantity ?? positionQuantity;
+      if (
+        !Number.isFinite(quantity) ||
+        quantity <= 0 ||
+        quantity > positionQuantity
+      ) {
+        throw new Error(`Invalid sell quantity for ${symbol}: ${quantity}`);
       }
 
       const latestBars = await this.alpaca.getLatestBars([symbol]);
@@ -125,7 +129,7 @@ export class Executor {
       const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2));
       const response = await this.alpaca.createOrder({
         symbol,
-        qty: qty,
+        qty: quantity,
         side: "sell",
         type: "limit",
         limit_price: marketableLimitPrice,
@@ -220,4 +224,8 @@ export class Executor {
       return { success: false, error: err };
     }
   }
+}
+
+function roundToPriceIncrement(price: number): number {
+  return Number(price.toFixed(price >= 1 ? 2 : 4));
 }

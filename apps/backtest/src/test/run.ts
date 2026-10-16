@@ -11,6 +11,7 @@ async function run(): Promise<void> {
   await testTimestampBasedSession();
   await testDonchianUsesPriorBars();
   await testTargetExitAndAttribution();
+  await testTrailingStopHalfOutAndBreakEvenProtection();
   await testProgressCallback();
   await testEndOfDataLiquidationWithoutBracket();
   process.stdout.write("Backtest regression tests passed.\n");
@@ -68,6 +69,30 @@ async function testTargetExitAndAttribution(): Promise<void> {
   assert.equal(result.trades[0].exitReason, "take-profit");
   assert.equal(result.orders.filter((order) => order.status === "filled").length, 2);
   assert.equal(result.metrics.wins, 1);
+}
+
+async function testTrailingStopHalfOutAndBreakEvenProtection(): Promise<void> {
+  const result = await new BacktestEngine().run(
+    [
+      createBar({ timestamp: timestampAt(0), open: 10, high: 10, low: 10, close: 10 }),
+      createBar({ timestamp: timestampAt(1), open: 10, high: 11, low: 10.5, close: 11 }),
+      createBar({ timestamp: timestampAt(2), open: 11, high: 12, low: 11.5, close: 12 }),
+      createBar({ timestamp: timestampAt(3), open: 12, high: 12, low: 11, close: 11 }),
+    ],
+    baseConfig({
+      stopLossPct: 0.02,
+      takeProfitPct: 0.1,
+      trailingStopLoss: true,
+    }),
+  );
+
+  assert.equal(result.trades.length, 2);
+  assert.equal(result.trades[0].exitReason, "take-profit-half");
+  assert.equal(result.trades[0].quantity, 50);
+  assert.equal(result.trades[1].exitReason, "trailing-stop");
+  assert.equal(result.trades[1].exitPrice, 11);
+  assert.equal(result.trades[1].quantity, 50);
+  assert.equal(result.endingEquity, 1_100);
 }
 
 async function testProgressCallback(): Promise<void> {
