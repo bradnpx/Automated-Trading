@@ -49,8 +49,8 @@ async function main() {
         MASTER_WATCHLIST.set(symbol, {
           symbol,
           strategy: "dayTradeMicroScalp",
-          stopLossPct: 5,
-          takeProfitPct: 5,
+          stopLossPct: 1.5,
+          takeProfitPct: 2.5,
           totalRisk: 0.01,
         });
       }

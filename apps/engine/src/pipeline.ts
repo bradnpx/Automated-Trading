@@ -335,6 +335,7 @@ export class StreamPipeline {
         }
 
         this.posManager.beginTrailingStop(symbol, entryPrice);
+        console.log(`ABOUT TO FIRE CLOSE POSITION, qty ${quantity} halfQty ${halfQuantity}`)
         const order = await this.executor.closePosition(symbol, halfQuantity);
         await this.recordExitIntent(symbol, order?.id, "TAKE_PROFIT_HALF");
       } else {
@@ -450,8 +451,8 @@ export class StreamPipeline {
       MASTER_WATCHLIST.set(bar.symbol, {
         symbol: bar.symbol,
         strategy: "dayTradeMicroScalp",
-        stopLossPct: 5,
-        takeProfitPct: 5,
+        stopLossPct: 1.5,
+        takeProfitPct: 2.5,
         totalRisk: 0.01,
       });
       syncTrackingCaches();
