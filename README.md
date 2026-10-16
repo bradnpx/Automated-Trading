@@ -41,6 +41,8 @@ Use `STRATEGY_<n>_TRAILING_STOP_LOSS=true` or `false` to override the global set
 
 The engine persists one local lifecycle record for every entry in `apps/engine/data/trade-lifecycles.json`. The record contains the entry fill, every exit fill, strategy settings, pending half-out state, and trailing-stop order state. The Logs dashboard reads this local ledger rather than reconstructing positions from broker order history, so a restart retains the complete entry-to-exit relationship without a historical broker API lookup. Set `TRADE_LIFECYCLE_PATH` to store the ledger elsewhere; back up the selected local path before changing machines.
 
+After websocket trading activity has started, the engine performs a background, read-only reconciliation against Alpaca's paginated closed-order history. It corrects and records local fills by broker order ID while retaining strategy and exit-reason attribution from the local journal. The ledger saves the most recent successful sync timestamp and uses `TRADE_LOG_SYNC_INTERVAL_HOURS` (24 by default) to schedule the next complete reconciliation. This process never creates, replaces, cancels, or otherwise changes a broker order.
+
 ### Local Development
 
 To spin up the entire application suite in development mode, execute the following command from the root directory:

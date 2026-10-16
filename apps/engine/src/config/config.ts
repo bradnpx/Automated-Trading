@@ -19,6 +19,10 @@ const defaultRisk = process.env.RISK_PER_TRADE || 0.05;
 export const POLYGON_API = process.env.POLYGON_API_KEY;
 export const TRAILING_STOP_LOSS_ENABLED =
   parseOptionalBoolean(process.env.TRAILING_STOP_LOSS) ?? false;
+export const TRADE_LOG_SYNC_INTERVAL_HOURS = parsePositiveNumber(
+  process.env.TRADE_LOG_SYNC_INTERVAL_HOURS,
+  24,
+);
 export const MASTER_WATCHLIST = new Map<string, MasterWatchlistItem>();
 export const ALL_TRACKED_SYMBOLS: string[] = [];
 export const GLOBAL_WATCHLIST: string[] = [];
@@ -110,6 +114,7 @@ console.log(
 export const TRADING_CONFIG = {
   RISK_PER_TRADE: Number(defaultRisk), // 5% of total equity
   TRAILING_STOP_LOSS_ENABLED,
+  TRADE_LOG_SYNC_INTERVAL_HOURS,
   PORT_WS_BROADCASTER: 4000,
   PORT_KILL_SWITCH_API: 4001,
 };
@@ -131,4 +136,19 @@ function parseOptionalBoolean(value: string | undefined): boolean | undefined {
     `⚠️ [CONFIG] Ignoring invalid trailing stop-loss value: ${value}`,
   );
   return undefined;
+}
+
+function parsePositiveNumber(
+  value: string | undefined,
+  fallback: number,
+): number {
+  if (value === undefined || value.trim() === "") return fallback;
+
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+
+  console.warn(
+    `⚠️ [CONFIG] Ignoring invalid trade-log sync interval: ${value}`,
+  );
+  return fallback;
 }

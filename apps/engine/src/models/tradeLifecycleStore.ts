@@ -21,6 +21,7 @@ const QUANTITY_EPSILON = 0.000_001;
 interface PersistedTradeLifecycleStore {
   version: number;
   lifecycles: TradeLifecycle[];
+  lastTradeLogSyncAt?: string;
 }
 
 export interface LifecycleFillInput {
@@ -41,9 +42,16 @@ export interface LifecycleFillResult {
   recorded: boolean;
 }
 
+export interface BrokerLifecycleReconciliationResult {
+  lifecycles: TradeLifecycle[];
+  updatedOrderIds: string[];
+  lifecycleByOrderId: Map<string, TradeLifecycle>;
+}
+
 export class TradeLifecycleStore {
   private readonly filepath: string;
   private lifecycles = new Map<string, TradeLifecycle>();
+  private lastTradeLogSyncAt: string | undefined;
   private initialized = false;
   private persistenceQueue: Promise<void> = Promise.resolve();
 
@@ -179,6 +187,97 @@ export class TradeLifecycleStore {
     return lifecycles.filter((lifecycle) => lifecycle.status !== "closed");
   }
 
+  public async getLastTradeLogSyncAt(): Promise<string | undefined> {
+    await this.init();
+    return this.lastTradeLogSyncAt;
+  }
+
+  public async reconcileBrokerFills(
+    inputs: LifecycleFillInput[],
+    snapshotStartedAt: string,
+  ): Promise<BrokerLifecycleReconciliationResult> {
+    await this.init();
+    if (!Number.isFinite(Date.parse(snapshotStartedAt))) {
+      throw new Error(
+        `Trade-log reconciliation has an invalid snapshot timestamp: ${snapshotStartedAt}`,
+      );
+    }
+
+    return this.mutate(async () => {
+      const updatedOrderIds = new Set<string>();
+      const authoritativeOrderIds = new Set(
+        inputs.map((input) => input.orderId),
+      );
+      this.pruneStaleBrokerFills(
+        authoritativeOrderIds,
+        snapshotStartedAt,
+        updatedOrderIds,
+      );
+      const sortedInputs = [...inputs].sort(
+        (left, right) => Date.parse(left.filledAt) - Date.parse(right.filledAt),
+      );
+
+      for (const input of sortedInputs) {
+        validateFillInput(input);
+        const existingLifecycle = this.findLifecycleByOrderId(input.orderId);
+        const preservedReason = existingLifecycle
+          ? getFillReason(existingLifecycle, input.orderId)
+          : undefined;
+        const targetLifecycle =
+          existingLifecycle ??
+          (input.side === "buy"
+            ? this.createLifecycle(input)
+            : this.findOpenLifecycleBySymbol(input.symbol));
+
+        if (!targetLifecycle) {
+          console.warn(
+            `⚠️ [LIFECYCLE] Skipping unmatched broker sell for ${input.symbol} (${input.orderId}).`,
+          );
+          continue;
+        }
+
+        removeOrderFills(targetLifecycle, input.orderId);
+        const reconciledInput: LifecycleFillInput = {
+          ...input,
+          ...(preservedReason ? { reason: preservedReason } : {}),
+        };
+        if (input.side === "buy") {
+          targetLifecycle.entryFills.push(toLifecycleFill(reconciledInput));
+        } else {
+          targetLifecycle.exitFills.push(toLifecycleFill(reconciledInput));
+        }
+        this.recalculateLifecycle(targetLifecycle, input.filledAt);
+        this.lifecycles.set(targetLifecycle.id, targetLifecycle);
+        updatedOrderIds.add(input.orderId);
+      }
+
+      const lifecycles = Array.from(this.lifecycles.values(), cloneLifecycle);
+      const lifecycleByOrderId = new Map<string, TradeLifecycle>();
+      for (const lifecycle of lifecycles) {
+        for (const fill of [...lifecycle.entryFills, ...lifecycle.exitFills]) {
+          lifecycleByOrderId.set(fill.orderId, lifecycle);
+        }
+      }
+
+      return {
+        lifecycles,
+        updatedOrderIds: Array.from(updatedOrderIds),
+        lifecycleByOrderId,
+      };
+    });
+  }
+
+  public async markTradeLogSynced(syncedAt: string): Promise<void> {
+    await this.init();
+    if (!Number.isFinite(Date.parse(syncedAt))) {
+      throw new Error(`Trade-log sync has an invalid timestamp: ${syncedAt}`);
+    }
+
+    await this.mutate(async () => {
+      this.lastTradeLogSyncAt = syncedAt;
+    });
+  }
+
   public async getExitReason(
     orderId: string,
     orderType: string,
@@ -251,6 +350,8 @@ export class TradeLifecycleStore {
 
     if (averageExitPrice !== undefined) {
       lifecycle.averageExitPrice = averageExitPrice;
+    } else {
+      delete lifecycle.averageExitPrice;
     }
 
     if (remainingQuantity <= QUANTITY_EPSILON && entryQuantity > 0) {
@@ -261,8 +362,10 @@ export class TradeLifecycleStore {
       delete lifecycle.trailingStopOrderId;
     } else if (exitedQuantity > 0) {
       lifecycle.status = "partially_closed";
+      delete lifecycle.closedAt;
     } else {
       lifecycle.status = "open";
+      delete lifecycle.closedAt;
     }
   }
 
@@ -304,10 +407,55 @@ export class TradeLifecycleStore {
     );
   }
 
+  private findLifecycleByOrderId(orderId: string): TradeLifecycle | undefined {
+    return Array.from(this.lifecycles.values()).find((lifecycle) =>
+      [...lifecycle.entryFills, ...lifecycle.exitFills].some(
+        (fill) => fill.orderId === orderId,
+      ),
+    );
+  }
+
+  private pruneStaleBrokerFills(
+    authoritativeOrderIds: Set<string>,
+    snapshotStartedAt: string,
+    updatedOrderIds: Set<string>,
+  ): void {
+    const snapshotStartedAtMs = Date.parse(snapshotStartedAt);
+
+    for (const [lifecycleId, lifecycle] of this.lifecycles) {
+      const previousFills = [...lifecycle.entryFills, ...lifecycle.exitFills];
+      const keepFill = (fill: TradeLifecycleFill): boolean =>
+        authoritativeOrderIds.has(fill.orderId) ||
+        Date.parse(fill.filledAt) >= snapshotStartedAtMs;
+      lifecycle.entryFills = lifecycle.entryFills.filter(keepFill);
+      lifecycle.exitFills = lifecycle.exitFills.filter(keepFill);
+
+      if (
+        lifecycle.entryFills.length === 0 &&
+        lifecycle.exitFills.length === 0
+      ) {
+        this.lifecycles.delete(lifecycleId);
+        for (const fill of previousFills) updatedOrderIds.add(fill.orderId);
+        continue;
+      }
+
+      if (
+        previousFills.length !==
+        lifecycle.entryFills.length + lifecycle.exitFills.length
+      ) {
+        this.recalculateLifecycle(lifecycle, snapshotStartedAt);
+        for (const fill of previousFills) updatedOrderIds.add(fill.orderId);
+      }
+    }
+  }
+
   private async persist(): Promise<void> {
     const state: PersistedTradeLifecycleStore = {
       version: LIFECYCLE_STORE_VERSION,
       lifecycles: Array.from(this.lifecycles.values()),
+      ...(this.lastTradeLogSyncAt
+        ? { lastTradeLogSyncAt: this.lastTradeLogSyncAt }
+        : {}),
     };
     const temporaryPath = `${this.filepath}.tmp`;
 
@@ -333,6 +481,7 @@ export class TradeLifecycleStore {
         .filter(isLifecycle)
         .map((lifecycle) => [lifecycle.id, cloneLifecycle(lifecycle)]),
     );
+    this.lastTradeLogSyncAt = value.lastTradeLogSyncAt;
   }
 }
 
@@ -347,6 +496,22 @@ function toLifecycleFill(input: LifecycleFillInput): TradeLifecycleFill {
     filledAt: input.filledAt,
     ...(input.reason ? { reason: input.reason } : {}),
   };
+}
+
+function getFillReason(
+  lifecycle: TradeLifecycle,
+  orderId: string,
+): TradeExitReason | undefined {
+  return lifecycle.exitFills.find((fill) => fill.orderId === orderId)?.reason;
+}
+
+function removeOrderFills(lifecycle: TradeLifecycle, orderId: string): void {
+  lifecycle.entryFills = lifecycle.entryFills.filter(
+    (fill) => fill.orderId !== orderId,
+  );
+  lifecycle.exitFills = lifecycle.exitFills.filter(
+    (fill) => fill.orderId !== orderId,
+  );
 }
 
 function validateFillInput(input: LifecycleFillInput): void {
@@ -396,7 +561,12 @@ function isPersistedStore(
 ): value is PersistedTradeLifecycleStore {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const store = value as Partial<PersistedTradeLifecycleStore>;
-  return typeof store.version === "number" && Array.isArray(store.lifecycles);
+  return (
+    typeof store.version === "number" &&
+    Array.isArray(store.lifecycles) &&
+    (store.lastTradeLogSyncAt === undefined ||
+      typeof store.lastTradeLogSyncAt === "string")
+  );
 }
 
 function isLifecycle(value: unknown): value is TradeLifecycle {

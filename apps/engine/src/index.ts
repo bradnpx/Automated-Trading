@@ -15,9 +15,10 @@ import { StreamPipeline } from "./pipeline.js";
 import { startBackgroundTasks } from "./tasks.js";
 import { warmupStrategies, checkAccountHealth } from "./utils/market.js";
 import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
-import { fetchTradeHistory } from "./middleware/logger.js";
+import { tradeJournal } from "./middleware/logger.js";
 import { StockBlacklist } from "./functions/getStockBlacklist.js";
 import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
+import { TradeLogSyncService } from "./services/tradeLogSync.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,9 @@ async function main() {
   );
   pipeline.initialize();
   await pipeline.resumePendingTrailingStops();
+
+  // Websocket execution handling is live before the slower broker reconciliation.
+  new TradeLogSyncService(alpaca, lifecycleStore, tradeJournal).start();
 
   await executeDynamicScannerSweep(alpaca, strategies, pipeline);
 
