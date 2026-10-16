@@ -126,6 +126,7 @@ export class Executor {
         throw new Error(`Unable to fetch real-time pricing data for ${symbol}`);
       }
 
+      console.log(`PREPARING TO CLOSE OUT, CHECK PARTIAL HERE: qty ${quantity}, requestedQuant ${requestedQuantity}`)
       const marketableLimitPrice = Number((bar.ClosePrice * 0.98).toFixed(2));
       const response = await this.alpaca.createOrder({
         symbol,
