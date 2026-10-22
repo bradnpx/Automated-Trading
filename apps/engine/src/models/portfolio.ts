@@ -29,8 +29,10 @@ export type PortfolioPosition = BrokerPosition & {
   strategy?: string;
   takeProfitPct?: number;
   stopLossPct?: number;
+  trailingStopLossPct?: number;
   totalRisk?: number;
   expiration?: number;
+  age?: number;
   marked_at: string;
 };
 

@@ -113,7 +113,6 @@ export class Executor {
       const positionQuantity = Number(position.qty);
       const quantity = requestedQuantity ?? positionQuantity;
       if (
-        !Number.isFinite(quantity) ||
         quantity <= 0 ||
         quantity > positionQuantity
       ) {
@@ -183,13 +182,15 @@ export class Executor {
         throw new Error(`Invalid trailing price for ${symbol}: ${trailPrice}`);
       }
 
+      const isFractional = !Number.isInteger(quantity);
+      
       const order = await this.alpaca.createOrder({
         symbol,
         qty: quantity,
         side: "sell",
         type: "trailing_stop",
         trail_price: trailPrice,
-        time_in_force: "gtc",
+        time_in_force: isFractional ? "day" : "gtc",
       });
       console.log(
         `🛡️ [EXEC] TRAILING STOP PLACED: ${symbol} | Qty: ${quantity} | Initial stop: $${entryPrice.toFixed(2)} | ID: ${order.id}`,

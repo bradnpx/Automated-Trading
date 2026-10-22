@@ -430,10 +430,10 @@ export class StreamPipeline {
           order?.id,
           "TRAILING_STOP_SETUP_FAILED",
         );
-      } catch (closeError) {
+      } catch (ledgerError) {
         console.error(
-          `❌ [PIPELINE] Failed to close unprotected remainder for ${symbol}:`,
-          closeError,
+          `❌ [LIFECYCLE] Fallback exit was submitted, but could not be persisted for ${symbol}:`,
+          ledgerError,
         );
         this.posManager.clearPendingExit(symbol);
       }
