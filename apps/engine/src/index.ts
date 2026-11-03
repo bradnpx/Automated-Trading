@@ -18,6 +18,7 @@ import { executeDynamicScannerSweep } from "./utils/scannerTask.js";
 import { fetchTradeHistory } from "./middleware/logger.js";
 import { StockBlacklist } from "./functions/getStockBlacklist.js";
 import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
+import { RemainderProtectionController } from "./remainderProtection.js";
 
 // ENVIRONMENT LOAD
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,11 @@ async function main() {
   const scanner = new Scanner();
   const strategies = new Map<string, any>();
   const engineState = { isKilled: false };
+  executor.setSubmissionGuard(() => !engineState.isKilled);
+  const protection = new RemainderProtectionController(
+    lifecycleStore, posManager, executor, broadcaster, undefined,
+    () => new Date(), () => !engineState.isKilled,
+  );
 
   await checkAccountHealth(alpaca);
   await posManager.syncPositions();
@@ -72,6 +78,7 @@ async function main() {
     broadcaster,
     engineState,
     lifecycleStore,
+    protection,
   });
   startBackgroundTasks(alpaca, posManager, broadcaster, executor);
 
@@ -84,6 +91,7 @@ async function main() {
     strategies,
     engineState,
     lifecycleStore,
+    protection,
   );
   pipeline.initialize();
   await pipeline.resumePendingTrailingStops();

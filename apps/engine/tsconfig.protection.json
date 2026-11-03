@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noImplicitAny": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "ignoreDeprecations": "5.0",
+    "types": ["node"],
+    "typeRoots": [
+      "./node_modules/@types",
+      "../../node_modules/@types",
+      "../../node_modules/.pnpm/node_modules/@types"
+    ]
+  },
+  "include": [
+    "src/protectionState.ts",
+    "src/protectionState.test.ts",
+    "src/remainderProtection.ts",
+    "src/remainderProtection.test.ts",
+    "src/remainderRecovery.test.ts",
+    "src/protectionPipeline.test.ts",
+    "src/pipeline.ts",
+    "src/api.ts",
+    "src/executor.ts",
+    "src/executorProtection.test.ts",
+    "src/positionManager.ts",
+    "src/models/tradeLifecycleStore.ts",
+    "src/models/tradeLifecycleStore*.test.ts"
+  ]
+}

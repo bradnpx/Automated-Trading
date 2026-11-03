@@ -7,7 +7,9 @@ import {
 } from "./config/config.js";
 import { logTrade } from "./middleware/logger.js";
 import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
-import type { StrategyEvaluationOptions } from "./strategies/IStrategy.js";
+import type { ProtectionBrokerOrder } from "./executor.js";
+import { RemainderProtectionController } from "./remainderProtection.js";
+import type { StrategyCriteriaEvaluation, StrategyEvaluationOptions } from "./strategies/IStrategy.js";
 
 type MarketTrade = {
   Symbol?: string;
@@ -50,6 +52,7 @@ export class StreamPipeline {
     private strategies: Map<string, any>,
     private engineState: { isKilled: boolean },
     private lifecycleStore?: TradeLifecycleStore,
+    private protection?: RemainderProtectionController,
   ) {}
 
   public initialize(): void {
@@ -100,7 +103,7 @@ export class StreamPipeline {
   private async processCompletedBar(barData: unknown): Promise<void> {
     try {
       const bar = this.parseBar(barData);
-      this.posManager.updatePositionMark(bar.symbol, bar.close);
+      this.posManager.updatePositionMark(bar.symbol, bar.close, new Date(bar.timestamp).toISOString());
       this.broadcaster.broadcastBar(bar.symbol, bar.close);
 
       // Exit conditions always precede entry logic for a completed bar.
@@ -126,14 +129,17 @@ export class StreamPipeline {
       tradeData.Size ?? tradeData.size ?? tradeData.s,
       0,
     );
-    const timestamp = this.toIsoTimestamp(
-      tradeData.Timestamp ?? tradeData.timestamp ?? tradeData.t,
-    );
+    const rawTimestamp = tradeData.Timestamp ?? tradeData.timestamp ?? tradeData.t;
+    if (!rawTimestamp || !Number.isFinite(Date.parse(rawTimestamp))) return;
+    const timestamp = new Date(rawTimestamp).toISOString();
 
     if (!symbol || !price) return;
+    if (this.protection && !this.protection.onPrice(symbol, price, timestamp)) return;
+    const previous = this.liveBars.get(symbol);
+    if (previous && Date.parse(timestamp) < new Date(previous.timestamp).getTime()) return;
 
     this.updateLiveBar(symbol, price, size, timestamp);
-    this.posManager.updatePositionMark(symbol, price);
+    this.posManager.updatePositionMark(symbol, price, timestamp);
     this.broadcaster.broadcastBar(symbol, price);
   }
 
@@ -141,6 +147,19 @@ export class StreamPipeline {
     try {
       const { event, order, price, fillQty } = data;
       if (!order?.symbol) return;
+      if (order.id && this.protection) {
+        const observed: ProtectionBrokerOrder = {
+          id: String(order.id), symbol: String(order.symbol),
+          status: event === "fill" ? "filled" : event === "partial_fill" ? "partially_filled" : String(order.status ?? event),
+          client_order_id: order.client_order_id,
+          side: order.side, type: order.type ?? order.order_type,
+          qty: order.qty, filled_qty: order.filled_qty,
+          filled_avg_price: order.filled_avg_price,
+          filled_at: order.filled_at, submitted_at: order.submitted_at,
+        };
+        // Latch completed half-out/failure state before ledger or log I/O.
+        this.protection.observeOrder(order.symbol, observed);
+      }
 
       if (event === "canceled" || event === "rejected" || event === "expired") {
         await this.lifecycleStore?.clearExitIntent(order.id);
@@ -220,8 +239,11 @@ export class StreamPipeline {
           orderType,
           side: order.side,
           symbol: order.symbol,
-          price: fillPrice,
+          price: Number(order.filled_qty) > 0 && Number(order.filled_avg_price) > 0 ? Number(order.filled_avg_price) : fillPrice,
           quantity,
+          ...(Number.isFinite(Number(order.filled_qty)) && Number(order.filled_qty) > 0
+            ? { cumulativeQuantity: Number(order.filled_qty), cumulativePrice: Number(order.filled_avg_price) > 0 }
+            : {}),
           filledAt: timestamp,
           profile,
           ...(exitReason ? { reason: exitReason } : {}),
@@ -265,17 +287,6 @@ export class StreamPipeline {
       await this.posManager.syncPositions();
       this.subscribeToSymbols(this.posManager.getPositionSymbols());
       this.broadcaster.broadcastPortfolio(this.posManager.getPositions());
-
-      if (
-        shouldLogFill &&
-        event === "fill" &&
-        order.side === "sell" &&
-        order.type !== "trailing_stop" &&
-        this.posManager.getPendingTrailingStopEntryPrice(order.symbol) !==
-          undefined
-      ) {
-        await this.installTrailingStopAfterHalfExit(order.symbol);
-      }
     } catch (error) {
       console.error("❌ Error handling trade order update in pipeline:", error);
     }
@@ -283,6 +294,7 @@ export class StreamPipeline {
 
   private startSecondLevelEvaluationLoop(): void {
     setInterval(() => {
+      if (!this.engineState.isKilled) void this.protection?.tick();
       void this.evaluateLiveBars();
     }, SECOND_LEVEL_EVALUATION_INTERVAL_MS);
   }
@@ -298,9 +310,8 @@ export class StreamPipeline {
 
     try {
       for (const [symbol, liveBar] of this.liveBars) {
-        if (!MASTER_WATCHLIST.has(symbol)) continue;
-
         if (await this.handleExits(symbol, liveBar.close)) continue;
+        if (!MASTER_WATCHLIST.has(symbol)) continue;
         await this.handleStrategyEntries(liveBar, { recordBar: false });
       }
     } catch (error) {
@@ -318,6 +329,9 @@ export class StreamPipeline {
     currentPrice: number,
   ): Promise<boolean> {
     if (!this.posManager.hasPosition(symbol)) return false;
+    if (this.protection?.manages(symbol)) {
+      return this.posManager.hasPendingExit(symbol);
+    }
 
     const decision = this.posManager.checkExitConditions(symbol, currentPrice);
     if (!decision.shouldExit) return false;
@@ -329,15 +343,10 @@ export class StreamPipeline {
       if (decision.action === "take-profit-half") {
         const quantity = decision.quantity ?? 0;
         const entryPrice = decision.entryPrice ?? 0;
-        const halfQuantity = quantity / 2;
-        if (!(halfQuantity > 0) || !(entryPrice > 0)) {
+        if (!(quantity > 0) || !(entryPrice > 0) || !this.protection) {
           throw new Error(`Invalid half-out values for ${symbol}`);
         }
-
-        this.posManager.beginTrailingStop(symbol, entryPrice);
-        console.log(`ABOUT TO FIRE CLOSE POSITION, qty ${quantity} halfQty ${halfQuantity}`)
-        const order = await this.executor.closePosition(symbol, halfQuantity);
-        await this.recordExitIntent(symbol, order?.id, "TAKE_PROFIT_HALF");
+        await this.protection.startHalfExit(symbol, entryPrice, quantity);
       } else {
         const order = await this.executor.closePosition(symbol);
         await this.recordExitIntent(
@@ -357,87 +366,14 @@ export class StreamPipeline {
         `❌ [PIPELINE] closePosition failed for ${symbol}. Releasing lock for retry.`,
         error,
       );
-      this.posManager.cancelPendingTrailingStop(symbol);
-      this.posManager.clearPendingExit(symbol);
+      if (!this.protection?.manages(symbol)) this.posManager.clearPendingExit(symbol);
     }
 
     return true;
   }
 
   public async resumePendingTrailingStops(): Promise<void> {
-    for (const symbol of this.posManager.getPendingTrailingStopSymbols()) {
-      const entryPrice =
-        this.posManager.getPendingTrailingStopEntryPrice(symbol);
-      if (entryPrice === undefined) continue;
-
-      try {
-        const order = await this.executor.placeBreakEvenTrailingStop(
-          symbol,
-          entryPrice,
-        );
-        if (!order?.id) {
-          throw new Error(`Missing trailing-stop order id for ${symbol}`);
-        }
-        await this.lifecycleStore?.activateTrailingStop(symbol, order.id);
-        this.posManager.activateTrailingStop(symbol);
-        this.posManager.cancelPendingTrailingStop(symbol);
-        this.posManager.clearPendingExit(symbol);
-      } catch (error) {
-        console.error(
-          `❌ [PIPELINE] Failed to restore trailing-stop protection for ${symbol}:`,
-          error,
-        );
-      }
-    }
-  }
-
-  private async installTrailingStopAfterHalfExit(
-    symbol: string,
-  ): Promise<void> {
-    const entryPrice = this.posManager.getPendingTrailingStopEntryPrice(symbol);
-    if (entryPrice === undefined) return;
-
-    try {
-      const order = await this.executor.placeBreakEvenTrailingStop(
-        symbol,
-        entryPrice,
-      );
-      if (!order?.id) {
-        throw new Error(`Missing trailing-stop order id for ${symbol}`);
-      }
-      await this.lifecycleStore?.activateTrailingStop(symbol, order.id);
-      this.posManager.activateTrailingStop(symbol);
-      this.posManager.cancelPendingTrailingStop(symbol);
-      this.posManager.clearPendingExit(symbol);
-      this.broadcaster.broadcastSignal({
-        symbol,
-        action: "SELL",
-        confidence: 1,
-        reason: "TRAILING_STOP_ACTIVE: remaining shares protected at entry",
-      });
-    } catch (error) {
-      this.posManager.cancelPendingTrailingStop(symbol);
-      console.error(
-        `❌ [PIPELINE] Trailing stop setup failed for ${symbol}; closing the unprotected remainder.`,
-        error,
-      );
-
-      try {
-        this.posManager.markPendingExit(symbol);
-        const order = await this.executor.closePosition(symbol);
-        await this.recordExitIntent(
-          symbol,
-          order?.id,
-          "TRAILING_STOP_SETUP_FAILED",
-        );
-      } catch (ledgerError) {
-        console.error(
-          `❌ [LIFECYCLE] Fallback exit was submitted, but could not be persisted for ${symbol}:`,
-          ledgerError,
-        );
-        this.posManager.clearPendingExit(symbol);
-      }
-    }
+    await this.protection?.initialize();
   }
 
   private async handleScannerAndWarmup(bar: Bar): Promise<void> {
@@ -469,7 +405,7 @@ export class StreamPipeline {
     const watchlistItem = MASTER_WATCHLIST.get(bar.symbol);
     const signal = await strategy.evaluateStrategy(bar, {
       ...options,
-      onCriteriaEvaluated: (evaluation) => {
+      onCriteriaEvaluated: (evaluation: StrategyCriteriaEvaluation) => {
         options.onCriteriaEvaluated?.(evaluation);
         this.broadcaster.broadcastStrategyEvaluation({
           symbol: bar.symbol,
@@ -497,8 +433,12 @@ export class StreamPipeline {
     ) {
       this.posManager.markPendingExit(bar.symbol);
       try {
-        const order = await this.executor.closePosition(bar.symbol);
-        await this.recordExitIntent(bar.symbol, order?.id, "STRATEGY_SELL");
+        if (this.protection?.manages(bar.symbol)) {
+          await this.protection.requestExit(bar.symbol, "STRATEGY_SELL");
+        } else {
+          const order = await this.executor.closePosition(bar.symbol);
+          await this.recordExitIntent(bar.symbol, order?.id, "STRATEGY_SELL");
+        }
         this.broadcaster.broadcastSignal(signal);
       } catch (error) {
         console.error(
@@ -512,6 +452,7 @@ export class StreamPipeline {
 
     if (
       signal.action !== "BUY" ||
+      (this.protection && !this.protection.isReady()) ||
       !this.posManager.canOpenPosition(bar.symbol)
     ) {
       return;
@@ -524,7 +465,7 @@ export class StreamPipeline {
         TRADING_CONFIG.RISK_PER_TRADE;
       const equity = await this.posManager.getOrFetchEquity();
       const quantity = (equity * risk) / bar.close;
-      if (quantity <= 0) {
+      if (quantity <= 0 || this.engineState.isKilled || (this.protection && !this.protection.isReady())) {
         this.posManager.clearPendingBuy(bar.symbol);
         return;
       }
@@ -545,6 +486,7 @@ export class StreamPipeline {
 
   private async runTestBuy(symbol: string): Promise<void> {
     if (StreamPipeline.ranTestBuy) return;
+    if (this.engineState.isKilled || (this.protection && !this.protection.isReady())) return;
 
     const quantity = 1;
     console.log(`🧪 TEST: Forcing a test buy for ${symbol}...`);

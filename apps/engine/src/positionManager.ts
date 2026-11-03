@@ -11,7 +11,7 @@ import {
   Portfolio,
   PortfolioPosition,
 } from "./models/portfolio.js";
-import { TradeLifecycle } from "@my-platform/types";
+import type { RemainderProtection, TradeLifecycle } from "@my-platform/types";
 
 export type PositionExitAction = "none" | "close-position" | "take-profit-half";
 
@@ -50,6 +50,9 @@ export class PositionManager {
   private pendingTrailingStopEntries = new Map<string, number>();
   /** Entry metadata reconstructed from the application's trade logs when needed. */
   private entryProfiles = new Map<string, PositionExitProfile>();
+  private readonly remainderProtections = new Map<string, RemainderProtection>();
+  private readonly blockedExposure = new Set<string>();
+  private readonly unsupportedHalfExits = new Set<string>();
 
   /** Avoids fetching account equity for every second-level strategy evaluation. */
   private cachedEquity: number | null = null;
@@ -155,13 +158,16 @@ export class PositionManager {
   }
 
   public hasPendingExit(symbol: string): boolean {
+    const protection = this.remainderProtections.get(symbol);
     return (
       this.pendingExits.has(symbol) ||
-      this.pendingTrailingStopEntries.has(symbol)
+      Boolean(protection?.exit) ||
+      Boolean(protection && !protection.halfExit.completed && protection.phase !== "closed")
     );
   }
 
   public canOpenPosition(symbol: string): boolean {
+    if (this.blockedExposure.has(symbol)) return false;
     const blacklistedSymbols = this.blacklist?.getSymbols() ?? [];
     if (blacklistedSymbols.includes(symbol)) {
       // console.log(
@@ -187,6 +193,23 @@ export class PositionManager {
 
   public clearPendingExit(symbol: string): void {
     this.pendingExits.delete(symbol);
+  }
+
+  public blockNewExposure(symbol: string): void {
+    this.blockedExposure.add(symbol);
+  }
+
+  public suppressUnsupportedHalf(symbol: string): void {
+    this.unsupportedHalfExits.add(symbol);
+  }
+
+  public setRemainderProtection(symbol: string, protection: RemainderProtection): void {
+    this.remainderProtections.set(symbol, structuredClone(protection));
+    if (protection.phase === "closed") {
+      this.pendingExits.delete(symbol);
+      this.pendingTrailingStopEntries.delete(symbol);
+      this.trailingStopSymbols.delete(symbol);
+    }
   }
 
   public activateTrailingStop(symbol: string): void {
@@ -225,16 +248,13 @@ export class PositionManager {
         trailingStopLoss: lifecycle.profile.trailingStopLoss,
       });
 
-      if (lifecycle.trailingStopOrderId) {
-        this.trailingStopSymbols.add(lifecycle.symbol);
-        continue;
-      }
-
-      if (lifecycle.status === "partially_closed") {
-        this.pendingTrailingStopEntries.set(
-          lifecycle.symbol,
-          lifecycle.averageEntryPrice,
-        );
+      if (lifecycle.protection) {
+        this.setRemainderProtection(lifecycle.symbol, lifecycle.protection);
+        if (lifecycle.protection.exit || !lifecycle.protection.halfExit.completed) {
+          this.pendingExits.add(lifecycle.symbol);
+        }
+      } else if (lifecycle.pendingExit) {
+        this.pendingExits.add(lifecycle.symbol);
       }
     }
   }
@@ -310,10 +330,6 @@ export class PositionManager {
     symbol: string,
     currentPrice: number,
   ): PositionExitDecision {
-    if (this.pendingExits.has(symbol)) {
-      return { shouldExit: false, action: "none", reason: "" };
-    }
-
     const position = this.portfolio.getPosition(symbol);
     if (!position || !Number.isFinite(currentPrice) || currentPrice <= 0) {
       return { shouldExit: false, action: "none", reason: "" };
@@ -326,14 +342,20 @@ export class PositionManager {
 
     const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
     const profile = this.getExitProfile(symbol);
+    const protection = this.remainderProtections.get(symbol);
 
-    if (
-      this.trailingStopSymbols.has(symbol) ||
-      this.pendingTrailingStopEntries.has(symbol)
-    ) {
+    if (protection?.halfExit.completed && protection.phase !== "closed") {
+      if (protection.exit || currentPrice < protection.effectiveStop) {
+        return {
+          shouldExit: true, action: "close-position",
+          reason: protection.exit?.reason ?? (currentPrice < protection.entryPrice ? "ENTRY_PRICE_BACKSTOP" : "TRAILING_STOP_LOSS"),
+          profile, entryPrice: protection.entryPrice, quantity: Number(position.qty),
+        };
+      }
       return { shouldExit: false, action: "none", reason: "", profile };
     }
 
+    // Pending half-out setup must never suppress the applicable original loss guard.
     if (pnlPct <= -Math.abs(profile.stopLossPct)) {
       return {
         shouldExit: true,
@@ -343,6 +365,10 @@ export class PositionManager {
         entryPrice,
         quantity: Number(position.qty),
       };
+    }
+
+    if (this.pendingExits.has(symbol) || protection || this.pendingTrailingStopEntries.has(symbol) || this.unsupportedHalfExits.has(symbol)) {
+      return { shouldExit: false, action: "none", reason: "", profile };
     }
 
     if (pnlPct >= Math.abs(profile.takeProfitPct)) {

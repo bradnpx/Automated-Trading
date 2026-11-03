@@ -1,8 +1,8 @@
 # Persistent trailing-stop and entry-price backstop plan
 
-**Status:** Design only. Implementation is not authorized by this document.
+**Status:** Implementation separately authorized on November 3, 2026, on this existing feature branch. This document remains the design record; see [implementation notes](persistent-trailing-stop-implementation.md) for shipped scope, validation, and remaining execution-policy boundaries.
 
-**Requested scope:** Write and push this plan on `feat/persistent-trailing-stop-plan`. Do not change application code, dependencies, deployment, or broker orders. Do not merge into `main`.
+**Original plan-only scope:** Write and push this plan on `feat/persistent-trailing-stop-plan`. The later implementation approval permits focused engine changes and mocked tests, but does not permit dependency changes, deployment, real broker orders, or a merge into `main`.
 
 **Design baseline:** `04d29bcd76c36b1bf5ebf09d1f22a3891b3d05a7`, reviewed October 28, 2026.
 
@@ -183,11 +183,11 @@ Any future validation against paper/live brokerage execution requires separately
 
 ## Completion boundary for this branch
 
-This branch is complete when only this Markdown plan is committed and pushed. It must contain no engine implementation, dependency edits, runtime ledger, credentials, private account history, or generated test output. A pull request or merge is not part of the authorized step.
+The original plan-only step was completed with a Markdown-only commit. The separately approved implementation now follows it on this same feature branch. Runtime ledgers, credentials, private account history, dependency edits, and generated test output must remain excluded. Deployment, real-order testing, a pull request, and a merge are not part of this implementation.
 
 ## Broker references to recheck during implementation
 
 - [Alpaca fractional trading and supported order types](https://docs.alpaca.markets/us/docs/fractional-trading).
 - [Alpaca order types, native trailing stops, and trading-hours rules](https://docs.alpaca.markets/us/docs/orders-at-alpaca).
 
-These references document broker constraints; they do not establish that any specific account has accepted a particular request. No broker acceptance test is part of this plan-only branch.
+These references document broker constraints; they do not establish that any specific account has accepted a particular request. No real broker acceptance test is part of this branch.
