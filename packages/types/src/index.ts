@@ -97,6 +97,7 @@ export type TradeExitReason =
   | "TAKE_PROFIT"
   | "TAKE_PROFIT_HALF"
   | "TRAILING_STOP_LOSS"
+  | "ENTRY_PRICE_BACKSTOP"
   | "STOP_LOSS"
   | "STRATEGY_SELL"
   | "MANUAL_CLOSE"
@@ -127,6 +128,50 @@ export interface TradeLifecycleExitIntent {
   submittedAt: string;
 }
 
+export interface ProtectionExitIntent {
+  clientOrderId: string;
+  orderId?: string;
+  reason: TradeExitReason;
+  attempt: number;
+  nextRetryAt?: string;
+  submittedAt?: string;
+  status: "pending" | "working" | "unknown";
+  replacements: number;
+}
+
+export interface RemainderProtection {
+  version: 1;
+  phase:
+    | "half-exit-working"
+    | "protected-remainder"
+    | "remainder-exit-pending"
+    | "remainder-exit-working"
+    | "recovery-required"
+    | "closed";
+  revision: number;
+  entryPrice: number;
+  trailingDistance: number | null;
+  highWaterMark: number;
+  effectiveStop: number;
+  halfExit: {
+    clientOrderId: string;
+    orderId?: string;
+    targetQuantity: number;
+    filledQuantity: number;
+    orderFilledQuantity?: number;
+    completed: boolean;
+  };
+  calibrationRequired?: boolean;
+  /** Migrated half order uses its broker order ID, not the synthetic client ID. */
+  legacyHalfOrder?: boolean;
+  lastPriceAt?: string;
+  activatedAt?: string;
+  activationSource?: "trade" | "broker";
+  nativeOrderId?: string;
+  lastError?: string;
+  exit?: ProtectionExitIntent;
+}
+
 export interface TradeLifecycle {
   id: string;
   symbol: string;
@@ -146,6 +191,7 @@ export interface TradeLifecycle {
   realizedPnlPct: number;
   pendingExit?: TradeLifecycleExitIntent;
   trailingStopOrderId?: string;
+  protection?: RemainderProtection;
 }
 
 export interface HealthStatus {

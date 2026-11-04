@@ -6,6 +6,7 @@ import { Broadcaster } from "./broadcaster.js";
 import { MASTER_WATCHLIST } from "./config/config.js";
 import { getTradeHistory } from "./middleware/logger.js";
 import { TradeLifecycleStore } from "./models/tradeLifecycleStore.js";
+import type { RemainderProtectionController } from "./remainderProtection.js";
 
 interface ApiConfig {
   posManager: PositionManager;
@@ -13,6 +14,7 @@ interface ApiConfig {
   broadcaster: Broadcaster;
   engineState: { isKilled: boolean };
   lifecycleStore: TradeLifecycleStore;
+  protection?: RemainderProtectionController;
 }
 
 export function startApiService({
@@ -21,10 +23,15 @@ export function startApiService({
   broadcaster,
   engineState,
   lifecycleStore,
+  protection,
 }: ApiConfig) {
   const app = express();
   app.use(cors());
   app.use(express.json());
+
+  app.get("/protection", (req, res) => {
+    res.json(protection?.getStatus() ?? { ready: false, error: "Protection coordinator unavailable" });
+  });
 
   // GET: Fetch local lifecycle and execution journals; no broker history lookup.
   app.get("/history", async (req, res) => {
@@ -86,6 +93,10 @@ export function startApiService({
     posManager.markPendingExit(symbol);
 
     try {
+      if (protection?.manages(symbol)) {
+        await protection.requestExit(symbol, "MANUAL_CLOSE");
+        return res.status(202).json({ message: `Protective exit queued or working: ${symbol}`, protection: protection.getStatus() });
+      }
       const order = await executor.closePosition(symbol);
       if (order?.id) {
         await lifecycleStore.recordExitIntent(symbol, {
@@ -108,7 +119,7 @@ export function startApiService({
       res.status(200).json({ message: `Position closed: ${symbol}` });
     } catch (err) {
       // Release the lock so the position can be retried.
-      posManager.clearPendingExit(symbol);
+      if (!protection?.manages(symbol)) posManager.clearPendingExit(symbol);
       console.error(`❌ Failed to close ${symbol}:`, err);
       res.status(500).json({ error: `Failed to close position: ${symbol}` });
     }

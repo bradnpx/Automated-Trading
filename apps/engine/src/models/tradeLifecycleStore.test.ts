@@ -83,7 +83,7 @@ async function run(): Promise<void> {
   assert.equal(lifecycle.exitFills[1].reason, "TRAILING_STOP_LOSS");
 
   const persisted = JSON.parse(await readFile(storePath, "utf8"));
-  assert.equal(persisted.version, 1);
+  assert.equal(persisted.version, 2);
   assert.equal(persisted.lifecycles.length, 1);
   console.log("Trade lifecycle persistence verification passed.");
 }
